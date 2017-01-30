@@ -1,11 +1,13 @@
 Package: courseraswiftkey
 Type: Package
-Title: What the Package Does (Title Case)
+Title: Training data for the Coursera Data Science Capstone
+Date: 2017-01-29
 Version: 0.1.0
-Author: Who wrote it
-Maintainer: The package maintainer <yourself@somewhere.net>
-Description: More about what it does (maybe more than one line)
-    Use four spaces when indenting paragraphs within the Description.
+Authors@R: c(
+    person("Dylan", "Stark", , "dylan.stark@gmail.com", c("aut", "cre"))
+    )
+Description: Training data for the Coursera Data Science Capstone course.
+    The data was provided by SwiftKey.
 License: What license is it under?
 Encoding: UTF-8
 LazyData: true
