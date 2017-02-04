@@ -1,0 +1,229 @@
+---
+title: "EDA"
+author: "Dylan Stark"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_document
+vignette: >
+  %\VignetteIndexEntry{EDA}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width = 6, fig.asp = 0.618, out.width = "70%", fig.align = "center")
+```
+
+```{r}
+library(tidyverse)
+library(tidytext)
+
+library(courseraswiftkey)
+```
+
+## Twitter
+
+```{r}
+data(en_us_twitter)
+```
+
+```{r}
+raw_words <- en_us_twitter %>%
+  unnest_tokens(word, text)
+str(raw_words)
+```
+
+```{r}
+raw_words %>%
+  count(word, sort = TRUE) %>%
+  top_n(10, n) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Top 10 most-frequent words are all stop words",
+       x = "")
+```
+
+```{r}
+raw_words %>%
+  mutate(word = str_extract(word, "[a-z']+")) %>%
+  count(word) %>%
+  mutate(len = str_length(word),
+         freq = n / sum(n)) %>%
+  ggplot(aes(len, freq)) +
+  geom_jitter(alpha = 1/4) +
+  coord_cartesian(xlim = c(0, 10)) +
+  scale_y_log10()
+```
+
+### What are the most frequent words after removing stop words?
+
+```{r}
+words <- raw_words %>%
+  anti_join(stop_words, by = "word")
+```
+
+```{r}
+words %>%
+  count(word, sort = TRUE) %>%
+  top_n(10, n) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Top 10 most-frequent words",
+       x = "")
+```
+
+* Some of the top-10 words are *numbers*
+
+**Note**: Remember that the goal of this work is to predict the next word, so *stop words are meaningful* and should *not* be more removed
+
+### What does the full frequency distribution of words look like?
+
+```{r}
+words %>%
+  count(word, sort = TRUE) %>%
+  head(10)
+```
+
+
+```{r}
+words %>%
+  count(word, sort = TRUE) %>%
+  ggplot(aes(n)) +
+  geom_histogram(bins = 100) +
+  labs(title = "Word frequency distribution is very left-skewed",
+       x = "", y = "")
+```
+
+Zooming in ...
+
+```{r}
+words %>%
+  count(word, sort = TRUE) %>%
+  ggplot(aes(n)) +
+  geom_histogram(bins = 500) +
+  coord_cartesian(x = c(0, 20)) +
+  labs(title = "Mostly little-used words",
+       x = "", y = "")
+```
+
+* Very left-skewed
+* A small fraction of the words will appear very often
+
+### What are the Bottom-10 words?
+
+```{r}
+words %>%
+  count(word, sort = TRUE) %>%
+  tail(10)
+```
+
+* Some words are in different scripts (greek, arabic)
+* Some words start with uncommon letter "z"
+
+### How many unique words do you need in a frequency sorted dictionary to cover 50% of all word instances in the language? 90%?
+
+```{r}
+unique_word_coverage <- function(x, perc) {
+  x %>%
+    count(word, sort = TRUE) %>%
+    mutate(coverage = cumsum(n) / sum(n)) %>%
+    filter(coverage <= perc) %>%
+    count() %>%
+    .[["nn"]]
+}
+```
+
+```{r}
+unique_word_coverage(words, 0.50)
+```
+
+```{r}
+unique_word_coverage(words, 0.90)
+```
+
+### What are the most frequent word pairs?
+
+```{r}
+raw_pairs <- en_us_twitter %>%
+  unnest_tokens(pair, text, token = "ngrams", n = 2)
+head(raw_pairs)
+```
+
+* A lot of stop words
+
+```{r}
+pairs <- en_us_twitter %>%
+  unnest_tokens(pair, text, token = "ngrams", n = 2) %>%
+  separate(pair, c("left", "right"), " ") %>%
+  anti_join(stop_words, by = c("left" = "word")) %>%
+  anti_join(stop_words, by = c("right" = "word")) %>%
+  unite(pair, left, right, sep = " ")
+head(pairs)
+```
+
+```{r}
+pairs %>%
+  count(pair, sort = TRUE) %>%
+  top_n(10, n) %>%
+  mutate(pair = reorder(pair, n)) %>%
+  ggplot(aes(pair, n)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Celebrations and holidays are most frequent 2-grams",
+       x = "")
+```
+
+```{r}
+pairs %>%
+  count(pair, sort = TRUE) %>%
+  ggplot(aes(n)) +
+  geom_histogram(bins = 100) +
+  labs(title = "Even more little-used word pairings",
+       x = "", y = "")
+```
+
+## Brainstorming
+
+### Improving matching
+
+Create canonical representation:
+
+1. Remove punctuation: Inconsistent punctuation
+2. Remove decoration: markdown-ish characters about words
+3. Misspellings: commonly misspelled words; consider automated method based on string similarity, or a small corpus may be plenty
+4. Remove oddities like numbers, `---`, `_____`, etc.
+
+### Predicting pairs not in the corpus
+
+Consider triples (a, b, c).
+Find sets B such that there exist (a, b1, c), (a, b2, c), ..., (a, bN, c).
+Then use B to induce a new set C and consider new pairs (bi, cj) that were never seen before; likewise for A.
+Should we consider weighting the new pairs?
+
+Consider how articles and prepositions work in English.
+Consider how this will not transfer to other languages.
+
+### Removing profanity
+
+Look for a dictionary.
+
+### Merging corpus
+
+Use data from News to influence Blogs and Twitter predictions.
+Though beware of different usage styles such as abbreviations and poor grammar.
+
+### Handling proper names
+
+Consider using something like the babynames dataset to identify proper names.
+How are these words special?
+
+1. They are largely interchangeable
+
+### Considering Sentiment
+
+Can we use sentiment analysis to influence follow-on word choice?
+One idea is that negative messages favor a certain category of words.
+Also, we could use that categorization or classification to suggest words that we might not have seen; for instance, if we have to complete "I sure do hate to ..." and we've never seen that string before, we might use other similar phrases like "I really can't stand to read" or "no one likes to run".

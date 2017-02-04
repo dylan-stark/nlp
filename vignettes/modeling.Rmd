@@ -1,0 +1,159 @@
+---
+title: "Modeling"
+author: "Dylan Stark"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_document
+vignette: >
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width = 6, fig.asp = 0.618, out.width = "70%", fig.align = "center")
+```
+
+```{r}
+library(tidyverse)
+library(tidytext)
+library(lazyeval)
+
+library(courseraswiftkey)
+```
+
+## Guide
+
+The goal here is to build your first simple model for the relationship between words. This is the first step in building a predictive text mining application. You will explore simple models and discover more complicated modeling techniques.
+
+### Tasks to accomplish
+
+1. Build basic n-gram model - using the exploratory analysis you performed, build a basic n-gram model for predicting the next word based on the previous 1, 2, or 3 words.
+
+  A 1-gram model will predict the next word based on a single word.
+  We should write a method called `n_gram_model(text, n)` that can be applied to a body of text to produce a data frame with observations of `word`, `next`, and `prob`.
+
+1. Build a model to handle unseen n-grams - in some cases people will want to type a combination of words that does not appear in the corpora. Build a model to handle cases where a particular n-gram isn't observed.
+
+### Questions to consider
+
+1. How can you efficiently store an n-gram model (think Markov Chains)?
+1. How can you use the knowledge about word frequencies to make your model smaller and more efficient?
+1. How many parameters do you need (i.e. how big is n in your n-gram model)?
+1. Can you think of simple ways to "smooth" the probabilities (think about giving all n-grams a non-zero probability even if they aren't observed in the data) ?
+1. How do you evaluate whether your model is any good?
+1. How can you use backoff models to estimate the probability of unobserved n-grams?
+
+### Hints, tips, and tricks
+
+As you develop your prediction model, two key aspects that you will have to keep in mind are the size and runtime of the algorithm. These are defined as:
+
+* Size: the amount of memory (physical RAM) required to run the model in R
+* Runtime: The amount of time the algorithm takes to make a prediction given the acceptable input
+
+Your goal for this prediction model is to minimize both the size and runtime of the model in order to provide a reasonable experience to the user.
+
+Keep in mind that currently available predictive text models can run on mobile phones, which typically have limited memory and processing power compared to desktop computers. Therefore, you should consider very carefully (1) how much memory is being used by the objects in your workspace; and (2) how much time it is taking to run your model. Ultimately, your model will need to run in a Shiny app that runs on the shinyapps.io server.
+
+### Tips, tricks, and hints
+
+Here are a few tools that may be of use to you as you work on their algorithm:
+
+* object.size(): this function reports the number of bytes that an R object occupies in memory
+* Rprof(): this function runs the profiler in R that can be used to determine where bottlenecks in your function may exist. The profr package (available on CRAN) provides some additional tools for visualizing and summarizing profiling data.
+* gc(): this function runs the garbage collector to retrieve unused RAM for R. In the process it tells you how much memory is currently being used by R.
+
+There will likely be a tradeoff that you have to make in between size and runtime. For example, an algorithm that requires a lot of memory, may run faster, while a slower algorithm may require less memory. You will have to find the right balance between the two in order to provide a good experience to the user.
+
+## Prototypes
+
+### Table look-up with random fill-in
+
+This is a simple model that selects the next word through table look-up.
+If the word does not exist in the corpus then it selects randomly, weighted based on word frequency.
+
+```{r}
+data(en_us_twitter)
+
+raw_words <- en_us_twitter %>%
+  unnest_tokens(word, text)
+str(raw_words)
+```
+
+```{r}
+raw_pairs <- en_us_twitter %>%
+  unnest_tokens(pair, text, token = "ngrams", n = 2) %>%
+  separate(pair, c("left", "right"), sep = " ")
+str(raw_pairs)
+```
+
+Now we can look up words.
+
+```{r}
+raw_pairs %>%
+  filter(left == "banana")
+```
+
+```{r}
+raw_pairs %>%
+  filter(left == "bread")
+```
+
+For bread we can need some way to choose a single response.
+We could choose first occurrence -- that will be tied to the order of the tweets and will only ever select a single response per word.
+We could randomly choose one of the options -- that breaks away from order of tweets and increases the variety of responses.
+We could choose randomly but weight the choice based on frequency -- that gives preference to more common responses.
+
+```{r}
+freq_pairs <- raw_pairs %>%
+  count(left, right, sort = TRUE) %>%
+  mutate(freq = n / sum(n)) %>%
+  ungroup()
+str(freq_pairs)
+```
+
+```{r}
+freq_pairs %>%
+  filter(left == "the") %>%
+  sample_n(1, weight = freq)
+```
+
+Or, if I want to look at top three for fun ...
+
+```{r}
+freq_pairs %>%
+  filter(left == "the") %>%
+  sample_n(3, weight = freq)
+```
+
+Now let's wrap this into a function.
+
+```{r}
+next_word <- function(x, word, n = 1) {
+  if (nrow(x[x$left == word, ]) == 0) {
+    return(freq_pairs %>% sample_n(1, weight = freq) %>% .[["right"]])
+  }
+  
+  x %>%
+    filter_(interp(quote(left == word), word = word)) %>%
+    sample_n(n, weight = freq, replace = TRUE) %>%
+    .[["right"]]
+}
+next_word(freq_pairs, "the")
+next_word(freq_pairs, "the")
+next_word(freq_pairs, "the")
+next_word(freq_pairs, word = "the", n = 3)
+next_word(freq_pairs, word = "the", n = 3)
+
+new_word <- "the"
+next_word(freq_pairs, new_word)
+```
+
+And for words not in the corpus?
+
+```{r}
+not_on_left <- sample(setdiff(freq_pairs$right, freq_pairs$left), 1)
+not_on_left
+nrow(freq_pairs[freq_pairs$left == not_on_left, ])
+next_word(freq_pairs, not_on_left)
+```
+

@@ -1,0 +1,29 @@
+---
+title: "NLP Project Overview"
+author: "Dylan Stark"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{NLP Project Overview}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+The basic goal for the project is to build a predictive model of English text.
+
+## Exploratory Analysis
+
+> two key questions to consider here are, how frequently do certain words appear in the data set and how frequently do certain pairs of words appear together?
+
+> how do triplets of words appear together?
+
+1. Exploratory analysis - perform a thorough exploratory analysis of the data, understanding the distribution of words and relationship between the words in the corpora.
+1. Understand frequencies of words and word pairs - build figures and tables to understand variation in the frequencies of words and word pairs in the data.
+
+Questions to consider
+
+1. Some words are more frequent than others - what are the distributions of word frequencies?
+1. What are the frequencies of 2-grams and 3-grams in the dataset?
+1. How many unique words do you need in a frequency sorted dictionary to cover 50% of all word instances in the language? 90%?
+1. How do you evaluate how many of the words come from foreign languages?
+1. Can you think of a way to increase the coverage -- identifying words that may not be in the corpora or using a smaller number of words in the dictionary to cover the same number of phrases?
