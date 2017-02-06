@@ -16,6 +16,7 @@ knitr::opts_chunk$set(echo = TRUE, fig.width = 6, fig.asp = 0.618, out.width = "
 ```{r}
 library(tidyverse)
 library(tidytext)
+library(modelr)
 library(lazyeval)
 
 library(courseraswiftkey)
@@ -64,20 +65,37 @@ Here are a few tools that may be of use to you as you work on their algorithm:
 
 There will likely be a tradeoff that you have to make in between size and runtime. For example, an algorithm that requires a lot of memory, may run faster, while a slower algorithm may require less memory. You will have to find the right balance between the two in order to provide a good experience to the user.
 
+## Data
+
+```{r}
+data(en_us_twitter)
+
+training <- en_us_twitter %>%
+  crossv_kfold(k = 3)
+training
+
+training2 <- en_us_twitter %>%
+  sample_frac(0.10) %>%
+  crossv_mc(2)
+training2
+
+raw_words <- training2 %>%
+  mutate(words = map(train, ~ unnest_tokens(as.data.frame(.x), word, text)),
+         pairs = map(train, ~ unnest_tokens(as.data.frame(.x), pair, text, token = "ngrams", n = 2)))
+
+%>%
+  separate(pair, c("left", "right"), sep = " "))
+raw_words
+head(raw_words[1, ][["train"]])
+```
+
+
 ## Prototypes
 
 ### Table look-up with random fill-in
 
 This is a simple model that selects the next word through table look-up.
 If the word does not exist in the corpus then it selects randomly, weighted based on word frequency.
-
-```{r}
-data(en_us_twitter)
-
-raw_words <- en_us_twitter %>%
-  unnest_tokens(word, text)
-str(raw_words)
-```
 
 ```{r}
 raw_pairs <- en_us_twitter %>%
