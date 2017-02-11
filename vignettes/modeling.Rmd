@@ -22,6 +22,8 @@ library(lazyeval)
 library(courseraswiftkey)
 ```
 
+https://lagunita.stanford.edu/c4x/Engineering/CS-224N/asset/slp4.pdf — Stanford PDF
+
 ## Guide
 
 The goal here is to build your first simple model for the relationship between words. This is the first step in building a predictive text mining application. You will explore simple models and discover more complicated modeling techniques.
@@ -64,6 +66,31 @@ Here are a few tools that may be of use to you as you work on their algorithm:
 * gc(): this function runs the garbage collector to retrieve unused RAM for R. In the process it tells you how much memory is currently being used by R.
 
 There will likely be a tradeoff that you have to make in between size and runtime. For example, an algorithm that requires a lot of memory, may run faster, while a slower algorithm may require less memory. You will have to find the right balance between the two in order to provide a good experience to the user.
+
+## Approach
+
+This is a good prototyping environment because it the ultimate target is likely similarly resource-constrained environment, such as a phone.
+In that case we may be even more limited.
+In which case, we will need to use profiling code to understand the scale of resources we are needing in terms of memory and time.
+And we will have to balance that against measures like accuracy -- because the best answer in 5 minutes is not worth the 100th best answer in 50 milliseconds.
+
+This report covers some of the highlights from early data exploration.
+The idea is that the better we can understand the data that we have and it's structure, the better we can optimize our solution by reduce data size without loss of information.
+Another aspect of the exploration process is that we want to learn certain structural properties, especially those that are scale-free.
+
+As such, our prediction algorithm will be trained on a reduced set of data to produce a method that can be applied to potentially unknown data.
+We cannot afford to scan through a large corpus of data.
+Perhaps we will use structural features like length of the word, or encodings like splay trees to compress look-up.
+
+Central to this approach will be the use of statistical properties for bounding the likelihood of certain follow-on words.
+
+In this work we are going to start with a simple n-gram model.
+We will start with $n=2$ as an initial parameterization and work out from there.
+What I'd like to do is establish a simple model that can be measured.
+We will measure accuracy along with resource usage (time and space).
+This will allow us to try out different extensions and measure their effect on the constraints, such as lower bound on acceptable accuracy and upper bounds on memory usage.
+We will break the data into training and test sets and use cross-validation to assess in-sample accuracy.
+We will check accuracy by sampling $(n+1)$-grams and holding out the $n$th word as the label.
 
 ## Data
 
@@ -175,3 +202,6 @@ nrow(freq_pairs[freq_pairs$left == not_on_left, ])
 next_word(freq_pairs, not_on_left)
 ```
 
+## N-Gram Model
+
+[Stanford resource](https://lagunita.stanford.edu/c4x/Engineering/CS-224N/asset/slp4.pdf)

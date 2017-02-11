@@ -1,0 +1,219 @@
+---
+title: "Milestone Report"
+author: "Dylan Stark"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_document
+vignette: >
+  %\VignetteIndexEntry{Milestone Report}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, echo=FALSE}
+knitr::opts_chunk$set(echo = FALSE, fig.asp = 0.618, fig.align = "center", fig.width = 6,
+                      out.width = "70%")
+```
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(stringr)
+library(tidytext)
+library(ggthemes)
+
+library(courseraswiftkey)
+
+theme_set(theme_tufte())
+
+data("en_us_news")
+data("en_us_blogs")
+data("en_us_twitter")
+```
+
+## Summary
+
+Technology has scaled down to make smartphones, smartwatches, and small tablets the primary way that people connect to the internet and to each other.
+Unfortunately, communication has not scaled down as well and typing, key-by-key, is still the primary means for communicating.
+That means we need a way to improve the user experience when communicating with text.
+This project will address this issue by providing the user with an augmented keyboard that saves them from typing every word by allowing them to choose whole words without having to start typing them.
+
+The implementation will be based on learning language patterns and applying those to accurately predict, or recommend, follow-on words.
+The explosion of electronic media and publicly available large datasets means the data we need to train our models on is readily available.
+And by using [probabilistic n-gram models]() we can develop an application that is quick enough to keep the user happy and small enough to fit on the smallest of devices.
+
+The remainder of this report describes a single source of English text across three genres that will serve as the basis for the application prototype.
+To goal of the preliminary investigation is to look at trends in the data which will influence our application design.
+Three takeaways from the the data are
+
+1. Users writing news, blogs, or twitter messages have considerably different needs.
+1. The data is sparse -- we will need to [smooth]()
+1. Even within genre, the OOV rate is high
+
+The initial prototype application will involve developing a straightforward [trigram model]() per genre with [backoff]() which meet our spec. processing and memory requiremens.
+From this we will explore options for improving accuracy while honoring the resource bounds, making sure we do end up with a highly accurate model that needs a too much memory or processing power to run on a resource-constrained device.
+The target environment for the early prototype is a Shiny app that will execute in a resource-constrained environment.
+This means we cannot rely on having lots of memory or cores for loading and processing large data sets.
+We should also not expect to be able to run many models in parallel, as we might do for a random forests, for instance.
+
+## Sources and Genres
+
+The English corpora from the [Capstone Dataset](https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip) is used in this report.
+The table below shows details for each source: blogs, news, and twitter.
+Given the amount of data for each source we decided to take a sub-sample for this exploration.
+
+```{r}
+file_line_count <- function(filename) {
+  paste0("wc -l ", filename) %>%
+    system(intern = TRUE) %>%
+    str_extract("\\d+") %>%
+    as.integer()
+}
+```
+
+```{r files_data, cache=TRUE}
+files <- tribble(
+  ~ raw_filename, ~ rda_filename,
+  "../data-raw/final/en_US/en_US.blogs.txt", "../data/en_us_blogs.rda",
+  "../data-raw/final/en_US/en_US.news.txt", "../data/en_us_news.rda",
+  "../data-raw/final/en_US/en_US.twitter.txt", "../data/en_us_twitter.rda"
+) %>%
+  mutate(raw_size = file.size(raw_filename),
+         raw_line_count = map_int(raw_filename, file_line_count),
+         rda_size = file.size(rda_filename))
+```
+
+```{r raw_data_table}
+files %>%
+  select(-rda_filename) %>%
+  mutate(raw_filename = str_replace(raw_filename, "../data-raw/final/en_US/", "")) %>%
+  rename(`File name` = raw_filename,
+         `File size (B)` = raw_size,
+         `Line count` = raw_line_count,
+         `Sub-sample size (B)` = rda_size) %>%
+  knitr::kable(caption = "Raw file information. Sub-sample size is in Rda format.",
+               format.args = list(big.mark = ","))
+```
+
+```{r texts_data, cache=TRUE, dependson=c("files_data")}
+texts <- tribble(
+  ~ source, ~ corpora,
+  "Blogs", en_us_blogs,
+  "News", en_us_news,
+  "Twitter", en_us_twitter
+) %>%
+  mutate(num_obs = map_int(corpora, nrow),
+         words = map(corpora, ~ unnest_tokens(.x, word, text)),
+         total_words = map_int(words, nrow),
+         unique_words = map_int(words, ~ length(unique(.x[["word"]]))))
+```
+
+The following table shows more statistics for each of the sub-sampled sources.
+One point to note is that since we sample lines the Twitter data set has less than half the number of total words and just around half the number of distinct words as the news and blogs source, which makes sense considering the limited number of characters allowed in a tweet.
+
+```{r text_data_table}
+texts %>%
+  select(-corpora, -words) %>%
+  knitr::kable(col.names = c("Source", "Line count", "Total word count", "Distinct word count"),
+               format.args = list(big.mark = ","))
+```
+
+These sizes demonstrate that a look-up approach is untenable and that we need a space-efficient model.
+
+### Frequency of words
+
+As we might expect, only a relatively small number number or words are used frequently and most are words are used very infrequently.
+The following figure shows the frequency distribution of words with respect to each source.
+Note that the distributions for each source are very similar.
+
+```{r cache=TRUE, dependson=c("texts_data")}
+texts %>%
+  select(source, words) %>%
+  unnest(words) %>%
+  count(source, word, sort = TRUE) %>%
+  ggplot(aes(n)) +
+  geom_density(aes(color = source)) +
+  scale_x_log10() +
+  labs(title = "Word frequency distributions are extremely left-skewed",
+       x = "", y = "")
+```
+
+Given this distribution, it might be beneficial to look at the top-25 most frequent words per source.
+The following figure combines the three top-25 lists and shows the proportion of the sources that each word accounts for.
+The words are ordered based on the ranking for news, allowing us to compare that trend with the other sources.
+At the top of the list for all three sources are the expected words like "the", "and", "a", etc.
+However, what this side-by-side comparison helps highlight that while the frequency distributions for each source are very similar, the most frequent words are not.
+Both blogs and Twitter text have significantly higher use of personal pronouns, such as "I" and "you", than are seen in news.
+This is intuitive, that blogs and twitter are more personal and direct communication mediums, and a good sign that we should model these different sources differently.
+
+```{r cache=TRUE, dependson=c("texts_data")}
+top_words <- texts %>%
+  select(source, words) %>%
+  unnest(words) %>%
+  count(source, word, sort = TRUE) %>%
+  top_n(25, n) %>%
+  ungroup() %>%
+  distinct(word)
+
+texts %>%
+  select(source, words) %>%
+  mutate(source = factor(source, levels = c("News", "Blogs", "Twitter"), ordered = TRUE)) %>%
+  unnest(words) %>%
+  count(source, word, sort = TRUE) %>%
+  mutate(prop = n / sum(n)) %>%
+  inner_join(top_words, by = "word") %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, prop)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  facet_wrap(~ source) +
+  labs(title = "Per-source proportion of top-25 most frequent words",
+       x = "", y = "Proportion of text")
+```
+
+We can also compute the correlation of terms.
+
+```{r}
+tidy_news <- texts[texts$source == "News", "corpora"][[1]][[1]] %>%
+  mutate(source = "Blogs")
+tidy_blogs <- texts[texts$source == "Blogs", "corpora"][[1]][[1]]
+tidy_twitter <- texts[texts$source == "Twitter", "corpora"][[1]][[1]]
+
+tidy_freqs <- texts %>%
+  select(source, words) %>%
+  mutate(source = factor(source, levels = c("News", "Blogs", "Twitter"), ordered = TRUE)) %>%
+  unnest(words) %>%
+  count(source, word, sort = TRUE) %>%
+  mutate(frequency = n / sum(n)) %>%
+  ungroup() %>%
+  filter(str_detect(word, "['a-z]+")) %>%
+  select(-n) %>%
+  arrange(desc(frequency), word)
+```
+
+```{r}
+tidy_freqs %>%
+  spread(source, frequency) %>%
+  cor.test(~ News + Blogs, data = ., na.action = "na.omit")
+```
+
+```{r}
+tidy_freqs %>%
+  spread(source, frequency) %>%
+  cor.test(~ News + Twitter, data = ., na.action = "na.omit")
+```
+
+```{r}
+tidy_freqs %>%
+  spread(source, frequency) %>%
+  cor.test(~ Blogs + Twitter, data = ., na.action = "na.omit")
+```
+
+## Sparse Data
+
+Idea here is that if we look at percentage of word pairings in the training data we see that most are 0's.
+We could demonstrate this with a simple heatmap, perhaps restricted to the most densest values.
+This motivates the need for smoothing.
+
+## Missing Words and Phrases
+
+Idea here is that even with a large corpus we are going to encounter many missing words, pairs, and triples (phrases).
+We will demonstrate and attempt to measure this by creating a hold-out validation set from our training data, assessing the OOV rate 
