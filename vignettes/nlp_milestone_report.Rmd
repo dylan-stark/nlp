@@ -118,6 +118,24 @@ texts %>%
 
 These sizes demonstrate that a look-up approach is untenable and that we need a space-efficient model.
 
+```{r}
+# Split testing and training sets
+
+mtcars %>%
+  modelr::resample_partition(p = c(train = 0.80, test = 0.20)) %>%
+  enframe() %>%
+  spread(name, value)
+
+tribble(
+  ~ source, ~ corpora,
+  "Blogs", en_us_blogs,
+  "News", en_us_news,
+  "Twitter", en_us_twitter
+) %>%
+  mutate(split = map(corpora, ~ enframe(modelr::resample_partition(.x, p = c(train = 0.80, test = 0.20)))  %>% spread(name, value))) %>%
+  unnest(split)
+```
+
 ### Frequency of words
 
 As we might expect, only a relatively small number number or words are used frequently and most are words are used very infrequently.
