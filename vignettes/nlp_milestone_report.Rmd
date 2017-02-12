@@ -130,7 +130,7 @@ texts <- tribble(
   mutate(words = map(train, ~ unnest_tokens(as.data.frame(.x), word, text)))
 ```
 
-### Frequency of words
+## Frequent words
 
 As we might expect, only a relatively small number number or words are used frequently and most are words are used very infrequently.
 The following figure shows the frequency distribution of words with respect to each source.
@@ -149,12 +149,12 @@ texts %>%
 ```
 
 Given this distribution, it might be beneficial to look at the top-25 most frequent words per source.
-The following figure combines the three top-25 lists and shows the proportion of the sources that each word accounts for.
+The following figure combines the top-25 lists for each genre of text and shows the proportion of the sources that each word accounts for.
 The words are ordered based on the ranking for news, allowing us to compare that trend with the other sources.
 At the top of the list for all three sources are the expected words like "the", "and", "a", etc.
 However, what this side-by-side comparison helps highlight that while the frequency distributions for each source are very similar, the most frequent words are not.
 Both blogs and Twitter text have significantly higher use of personal pronouns, such as "I" and "you", than are seen in news.
-This is intuitive, that blogs and twitter are more personal and direct communication mediums, and a good sign that we should model these different sources differently.
+This is intuitive, that blogs and twitter are more personal and direct communication mediums, and a good indicator that we should model these different sources differently.
 
 ```{r cache=TRUE, dependson=c("texts_data")}
 top_words <- texts %>%
@@ -181,7 +181,9 @@ texts %>%
        x = "", y = "Proportion of text")
 ```
 
-We can also compute the correlation of terms.
+The following table shows another indication of the cross-genre differences.
+Here we look at the correlation of word use.
+We see that the news and blog corpora are most alike and that the news and twitter corpora for are least similar.
 
 ```{r}
 tidy_freqs <- texts %>%
@@ -196,66 +198,110 @@ tidy_freqs <- texts %>%
 ```
 
 ```{r}
-tidy_freqs %>%
+cor_news_blogs <- tidy_freqs %>%
   spread(source, frequency) %>%
   cor.test(~ News + Blogs, data = ., na.action = "na.omit")
 ```
 
 ```{r}
-tidy_freqs %>%
+cor_news_twitter <- tidy_freqs %>%
   spread(source, frequency) %>%
   cor.test(~ News + Twitter, data = ., na.action = "na.omit")
 ```
 
 ```{r}
-tidy_freqs %>%
+cor_blogs_twitter <- tidy_freqs %>%
   spread(source, frequency) %>%
   cor.test(~ Blogs + Twitter, data = ., na.action = "na.omit")
 ```
 
-## Sparse Data
+```{r}
+bind_rows(
+  mutate(broom::tidy(cor_news_blogs), pair = "News-Blogs"),
+  mutate(broom::tidy(cor_news_twitter), pair = "News-Twitter"),
+  mutate(broom::tidy(cor_blogs_twitter), pair = "Blogs-Twitter")
+) %>%
+  select(pair, estimate, conf.low, conf.high) %>%
+  arrange(desc(estimate)) %>%
+  knitr::kable(digits = 3, col.names = c("Correlation Test", "Estmiate", "Lower 95% CI", "Upper 95% CI"))
+```
 
-Idea here is that if we look at percentage of word pairings in the training data we see that most are 0's.
-We could demonstrate this with a simple heatmap, perhaps restricted to the most densest values.
+## Sparse word pairs
+
+The previous section looked at the distributions of words and how the different genres differ at the word level.
+We now want to investigate word pairings, or bigrams.
+Of particular interest is understanding how sparse the data set is as this will effect both how we handle smoothing of the data and how we represent the model in a space-efficient manner.
+
+This figure shows which of all possible pairs of the top-25 words from the News set are connected.
+Even given that these are mostly common articles and conjunctions we see the data set is rather sparse.
 
 ```{r}
-texts %>%
+top_news_words <- texts %>%
+  filter(source == "News") %>%
+  select(words) %>%
+  unnest(words) %>%
+  count(word, sort = TRUE) %>%
+  top_n(25, n)
+
+news_bigrams <- texts %>%
   filter(source == "News") %>%
   select(corpora) %>%
   unnest(corpora) %>%
   unnest_tokens(bigram, text, token = "ngrams", n = 2) %>%
   count(bigram, sort = TRUE) %>%
-  separate(bigram, c("left", "right"), sep = " ") %>%
-  head(20) %>%
-  ggplot(aes(left, right, fill = n)) +
-  geom_tile() +
-  labs(title = "Very sparse!") +
+  separate(bigram, c("left", "right"), sep = " ")
+
+news_bigrams %>%
+  filter(left %in% top_news_words$word) %>%
+  filter(right %in% top_news_words$word) %>%
+  ggplot(aes(left, right)) +
+  geom_tile(show.legend = FALSE) +
+  coord_flip() +
+  labs(x = "First word", y = "Second word") +
   theme(axis.ticks = element_blank())
 ```
 
+The next figure "zooms out" to show which pairs exist for (only) the top-500 words in the News source.
+In this case, we show the adjacency matrices for each genre.
+
 ```{r}
-texts %>%
+top_news_words <- texts %>%
+  filter(source == "News") %>%
+  select(words) %>%
+  unnest(words) %>%
+  count(word, sort = TRUE) %>%
+  top_n(500, n)
+
+all_bigrams <- texts %>%
   select(source, corpora) %>%
   unnest(corpora) %>%
   unnest_tokens(bigram, text, token = "ngrams", n = 2) %>%
   count(source, bigram, sort = TRUE) %>%
-  separate(bigram, c("left", "right"), sep = " ") %>%
-  head(500) %>%
-  ggplot(aes(left, right, fill = n)) +
+  separate(bigram, c("left", "right"), sep = " ")
+
+all_bigrams %>%
+  filter(left %in% top_news_words$word) %>%
+  filter(right %in% top_news_words$word) %>%
+  ggplot(aes(left, right, fill = source)) +
   geom_tile() +
   facet_wrap(~ source) +
-  labs(title = "Ver, very sparse") +
+  labs(title = "Very, very sparse",
+       x = "First word", y = "Second word") +
+  coord_flip() +
   guides(fill = FALSE) +
   theme(axis.text = element_blank(),
         axis.ticks = element_blank())
 ```
 
-This motivates the need for smoothing.
+From this it's clear that we have high sparsity in each genre.
 
-## Missing Words and Phrases
+## Unknown words
 
-Idea here is that even with a large corpus we are going to encounter many missing words, pairs, and triples (phrases).
-We will demonstrate and attempt to measure this by creating a hold-out validation set from our training data, assessing the OOV rate 
+We now assess the out-of-vocabulary (OOV) rate.
+The corpora for each genre was split: 80% for training, 10% for validation, and 10% for the final model testing.
+An OOV set was computed as the set of unique words in the validation dataset but not in the training dataset.
+From this we computed the OOV rate as the percentage of OOV in the validation dataset.
+The following table shows the rates for each genre.
 
 ```{r}
 oov <- texts %>%
@@ -271,12 +317,13 @@ oov <- texts %>%
          distinct_validate_words = map(validate_words, ~ distinct(.x, word)),
          oov_words = map2(distinct_validate_words, distinct_train_words, anti_join, by = "word"),
          oov_rate = map_int(oov_words, nrow) / map_int(distinct_validate_words, nrow))
-oov
 ```
 
 ```{r}
 oov %>%
   select(source, oov_rate) %>%
-  knitr::kable(digits = 3)
+  knitr::kable(digits = 3, col.names = c("Source", "OOV Rate"))
 ```
 
+As we see, even in the relatively small hold-out, around 25% of the words do not exist in the training data.
+That means it's likely that our application will have to handle a significant number of words that were not used when training the model.
