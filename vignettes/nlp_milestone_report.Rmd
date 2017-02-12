@@ -119,21 +119,15 @@ texts %>%
 These sizes demonstrate that a look-up approach is untenable and that we need a space-efficient model.
 
 ```{r}
-# Split testing and training sets
-
-mtcars %>%
-  modelr::resample_partition(p = c(train = 0.80, test = 0.20)) %>%
-  enframe() %>%
-  spread(name, value)
-
 tribble(
   ~ source, ~ corpora,
   "Blogs", en_us_blogs,
   "News", en_us_news,
   "Twitter", en_us_twitter
 ) %>%
-  mutate(split = map(corpora, ~ enframe(modelr::resample_partition(.x, p = c(train = 0.80, test = 0.20)))  %>% spread(name, value))) %>%
-  unnest(split)
+  mutate(split = map(corpora, ~ enframe(modelr::resample_partition(.x, p = c(train = 0.80, validate = 0.10, test = 0.10)))  %>% spread(name, value))) %>%
+  unnest(split) %>%
+  mutate(words = map(train, ~ unnest_tokens(as.data.frame(.x), word, text)))
 ```
 
 ### Frequency of words
@@ -190,11 +184,6 @@ texts %>%
 We can also compute the correlation of terms.
 
 ```{r}
-tidy_news <- texts[texts$source == "News", "corpora"][[1]][[1]] %>%
-  mutate(source = "Blogs")
-tidy_blogs <- texts[texts$source == "Blogs", "corpora"][[1]][[1]]
-tidy_twitter <- texts[texts$source == "Twitter", "corpora"][[1]][[1]]
-
 tidy_freqs <- texts %>%
   select(source, words) %>%
   mutate(source = factor(source, levels = c("News", "Blogs", "Twitter"), ordered = TRUE)) %>%
@@ -203,8 +192,7 @@ tidy_freqs <- texts %>%
   mutate(frequency = n / sum(n)) %>%
   ungroup() %>%
   filter(str_detect(word, "['a-z]+")) %>%
-  select(-n) %>%
-  arrange(desc(frequency), word)
+  select(-n)
 ```
 
 ```{r}
@@ -229,6 +217,39 @@ tidy_freqs %>%
 
 Idea here is that if we look at percentage of word pairings in the training data we see that most are 0's.
 We could demonstrate this with a simple heatmap, perhaps restricted to the most densest values.
+
+```{r}
+texts %>%
+  filter(source == "News") %>%
+  select(corpora) %>%
+  unnest(corpora) %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2) %>%
+  count(bigram, sort = TRUE) %>%
+  separate(bigram, c("left", "right"), sep = " ") %>%
+  head(20) %>%
+  ggplot(aes(left, right, fill = n)) +
+  geom_tile() +
+  labs(title = "Very sparse!") +
+  theme(axis.ticks = element_blank())
+```
+
+```{r}
+texts %>%
+  select(source, corpora) %>%
+  unnest(corpora) %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2) %>%
+  count(source, bigram, sort = TRUE) %>%
+  separate(bigram, c("left", "right"), sep = " ") %>%
+  head(500) %>%
+  ggplot(aes(left, right, fill = n)) +
+  geom_tile() +
+  facet_wrap(~ source) +
+  labs(title = "Ver, very sparse") +
+  guides(fill = FALSE) +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank())
+```
+
 This motivates the need for smoothing.
 
 ## Missing Words and Phrases
