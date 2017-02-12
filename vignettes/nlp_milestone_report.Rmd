@@ -31,9 +31,8 @@ data("en_us_twitter")
 
 ## Summary
 
-Technology has scaled down to make smartphones, smartwatches, and small tablets the primary way that people connect to the internet and to each other.
-Unfortunately, communication has not scaled down as well and typing, key-by-key, is still the primary means for communicating.
-That means we need a way to improve the user experience when communicating with text.
+Tablets and smartphones are the dominate means for electronic communication across the globe.
+Unfortunately, while the user benefits from lower prices and increased portability, they suffer from hunting and pecking with our thumbs over tiny keyboards, like animals, to produce even the simplest of text messages.
 This project will address this issue by providing the user with an augmented keyboard that saves them from typing every word by allowing them to choose whole words without having to start typing them.
 
 The implementation will be based on learning language patterns and applying those to accurately predict, or recommend, follow-on words.
@@ -285,12 +284,12 @@ all_bigrams %>%
   ggplot(aes(left, right, fill = source)) +
   geom_tile() +
   facet_wrap(~ source) +
-  labs(title = "Very, very sparse",
-       x = "First word", y = "Second word") +
+  labs(x = "First word", y = "Second word") +
   coord_flip() +
   guides(fill = FALSE) +
   theme(axis.text = element_blank(),
-        axis.ticks = element_blank())
+        axis.ticks = element_blank(),
+        aspect.ratio = 1.0)
 ```
 
 From this it's clear that we have high sparsity in each genre.
