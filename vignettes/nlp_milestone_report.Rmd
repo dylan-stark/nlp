@@ -119,7 +119,7 @@ texts %>%
 These sizes demonstrate that a look-up approach is untenable and that we need a space-efficient model.
 
 ```{r}
-tribble(
+texts <- tribble(
   ~ source, ~ corpora,
   "Blogs", en_us_blogs,
   "News", en_us_news,
@@ -256,3 +256,27 @@ This motivates the need for smoothing.
 
 Idea here is that even with a large corpus we are going to encounter many missing words, pairs, and triples (phrases).
 We will demonstrate and attempt to measure this by creating a hold-out validation set from our training data, assessing the OOV rate 
+
+```{r}
+oov <- texts %>%
+  mutate(unique_train_words = map_int(words, ~ length(unique(.x[["word"]]))),
+         validate_words = map(validate, ~ unnest_tokens(as.data.frame(.x), word, text)),
+         unique_validate_words = map_int(validate_words, ~ length(unique(.x[["word"]]))),
+         oov = setdiff(unique_validate_words, unique_train_words),
+         oov_rate  = length(oov) / unique_validate_words)
+oov <- texts %>%
+  select(-corpora, -test) %>%
+  mutate(validate_words = map(validate, ~ unnest_tokens(as.data.frame(.x), word, text)),
+         distinct_train_words = map(words, ~ distinct(.x, word)),
+         distinct_validate_words = map(validate_words, ~ distinct(.x, word)),
+         oov_words = map2(distinct_validate_words, distinct_train_words, anti_join, by = "word"),
+         oov_rate = map_int(oov_words, nrow) / map_int(distinct_validate_words, nrow))
+oov
+```
+
+```{r}
+oov %>%
+  select(source, oov_rate) %>%
+  knitr::kable(digits = 3)
+```
+
