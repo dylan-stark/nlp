@@ -35,9 +35,9 @@ if(!file.exists("data-raw/final")) {
 # Sample ~10,000 records from each file
 text <- tribble(
   ~filename, ~size,
-  "data-raw/final/en_US/en_US.blogs.txt", 0.01,
-  "data-raw/final/en_US/en_US.news.txt", 0.01,
-  "data-raw/final/en_US/en_US.twitter.txt", 0.01
+  "data-raw/final/en_US/en_US.blogs.txt", 0.02,
+  "data-raw/final/en_US/en_US.news.txt", 0.02,
+  "data-raw/final/en_US/en_US.twitter.txt", 0.02
 ) %>%
   mutate(raw_text = map2(filename, size, text_sample_frac))
 
@@ -45,6 +45,6 @@ en_us_blogs <- text[text$filename == "data-raw/final/en_US/en_US.blogs.txt", ][[
 en_us_news <- text[text$filename == "data-raw/final/en_US/en_US.news.txt", ][["raw_text"]][[1]]
 en_us_twitter <- text[text$filename == "data-raw/final/en_US/en_US.twitter.txt", ][["raw_text"]][[1]]
 
-devtools::use_data(en_us_blogs)
-devtools::use_data(en_us_news)
-devtools::use_data(en_us_twitter)
+devtools::use_data(en_us_blogs, overwrite = TRUE)
+devtools::use_data(en_us_news, overwrite = TRUE)
+devtools::use_data(en_us_twitter, overwrite = TRUE)

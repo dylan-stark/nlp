@@ -32,32 +32,29 @@ data("en_us_twitter")
 ## Summary
 
 Tablets and smartphones are the dominate means for electronic communication across the globe.
-Unfortunately, while the user benefits from lower prices and increased portability, they suffer from hunting and pecking with our thumbs over tiny keyboards, like animals, to produce even the simplest of text messages.
-This project will address this issue by providing the user with an augmented keyboard that saves them from typing every word by allowing them to choose whole words without having to start typing them.
+Unfortunately, while we benefit from lower prices and increased portability, we also suffer from hunting and pecking with our thumbs over tiny keyboards to produce even the simplest of text messages.
+This project will address this issue by providing the user with an augmented keyboard that saves them from typing every word with an automatic, predictive heads-up next-word selection mechanism.
 
-The implementation will be based on learning language patterns and applying those to accurately predict, or recommend, follow-on words.
-The explosion of electronic media and publicly available large datasets means the data we need to train our models on is readily available.
-And by using [probabilistic n-gram models]() we can develop an application that is quick enough to keep the user happy and small enough to fit on the smallest of devices.
+Our implementation will use a [probabilistic n-gram model](https://en.wikipedia.org/wiki/N-gram) to accurately recommend follow-on words.
+This will keep the memory and processor requirements low enough to fit on portable devices while being quick and accurate enough to keep the users happy.
+The goal of the preliminary investigation is to look at trends in the data which will influence our application design.
+The remainder of this report describes a single source of English text across three genres that will serve as the basis for the application prototype; in particular, three takeaways from the the data are
 
-The remainder of this report describes a single source of English text across three genres that will serve as the basis for the application prototype.
-To goal of the preliminary investigation is to look at trends in the data which will influence our application design.
-Three takeaways from the the data are
+1. Users writing news, blogs, or twitter messages have considerably different needs
+1. The data is sparse, very sparse, so we will need to [smooth](https://en.wikipedia.org/wiki/N-gram#Smoothing_techniques) probabilities in our model
+1. Even within genre, the out-of-vocabulary rate is high
 
-1. Users writing news, blogs, or twitter messages have considerably different needs.
-1. The data is sparse -- we will need to [smooth]()
-1. Even within genre, the OOV rate is high
-
-The initial prototype application will involve developing a straightforward [trigram model]() per genre with [backoff]() which meet our spec. processing and memory requiremens.
-From this we will explore options for improving accuracy while honoring the resource bounds, making sure we do end up with a highly accurate model that needs a too much memory or processing power to run on a resource-constrained device.
-The target environment for the early prototype is a Shiny app that will execute in a resource-constrained environment.
+The initial prototype application will involve developing a straightforward trigram model per genre with backoff that will meet our specific processing and memory requirements.
+From this we will explore options for improving accuracy within the resource bounds, making sure we do not end up with a highly accurate model that needs too much memory or processing power to run on a resource-constrained device.
+The target environment for the early prototype is a Shiny app that will execute in a constrained environment of it's own.
 This means we cannot rely on having lots of memory or cores for loading and processing large data sets.
-We should also not expect to be able to run many models in parallel, as we might do for a random forests, for instance.
+And we should also not expect to be able to run many models in parallel, as we might do for a random forests, for instance.
 
 ## Sources and Genres
 
 The English corpora from the [Capstone Dataset](https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip) is used in this report.
 The table below shows details for each source: blogs, news, and twitter.
-Given the amount of data for each source we decided to take a sub-sample for this exploration.
+Given the amount of data for each source we use only a sub-sample for this exploration.
 
 ```{r}
 file_line_count <- function(filename) {
@@ -88,8 +85,7 @@ files %>%
          `File size (B)` = raw_size,
          `Line count` = raw_line_count,
          `Sub-sample size (B)` = rda_size) %>%
-  knitr::kable(caption = "Raw file information. Sub-sample size is in Rda format.",
-               format.args = list(big.mark = ","))
+  knitr::kable(format.args = list(big.mark = ","))
 ```
 
 ```{r texts_data, cache=TRUE, dependson=c("files_data")}
@@ -129,7 +125,7 @@ texts <- tribble(
   mutate(words = map(train, ~ unnest_tokens(as.data.frame(.x), word, text)))
 ```
 
-## Frequent words
+## Frequent Words
 
 As we might expect, only a relatively small number number or words are used frequently and most are words are used very infrequently.
 The following figure shows the frequency distribution of words with respect to each source.
@@ -143,6 +139,7 @@ texts %>%
   ggplot(aes(n)) +
   geom_density(aes(color = source)) +
   scale_x_log10() +
+  scale_color_discrete("Source") +
   labs(title = "Word frequency distributions are extremely left-skewed",
        x = "", y = "")
 ```
@@ -151,9 +148,9 @@ Given this distribution, it might be beneficial to look at the top-25 most frequ
 The following figure combines the top-25 lists for each genre of text and shows the proportion of the sources that each word accounts for.
 The words are ordered based on the ranking for news, allowing us to compare that trend with the other sources.
 At the top of the list for all three sources are the expected words like "the", "and", "a", etc.
-However, what this side-by-side comparison helps highlight that while the frequency distributions for each source are very similar, the most frequent words are not.
+However, what this side-by-side comparison helps highlight is that while the frequency distributions for each source are very similar, the most frequent words are not.
 Both blogs and Twitter text have significantly higher use of personal pronouns, such as "I" and "you", than are seen in news.
-This is intuitive, that blogs and twitter are more personal and direct communication mediums, and a good indicator that we should model these different sources differently.
+This is intuitive, since blogs and twitter are more personal and direct communication mediums, and a good indicator that we should model these different sources differently.
 
 ```{r cache=TRUE, dependson=c("texts_data")}
 top_words <- texts %>%
@@ -180,8 +177,7 @@ texts %>%
        x = "", y = "Proportion of text")
 ```
 
-The following table shows another indication of the cross-genre differences.
-Here we look at the correlation of word use.
+The following table shows another indication of the cross-genre differences in terms of the correlation of word use.
 We see that the news and blog corpora are most alike and that the news and twitter corpora for are least similar.
 
 ```{r}
@@ -225,7 +221,7 @@ bind_rows(
   knitr::kable(digits = 3, col.names = c("Correlation Test", "Estmiate", "Lower 95% CI", "Upper 95% CI"))
 ```
 
-## Sparse word pairs
+## Sparse Word Pairs
 
 The previous section looked at the distributions of words and how the different genres differ at the word level.
 We now want to investigate word pairings, or bigrams.
@@ -294,10 +290,10 @@ all_bigrams %>%
 
 From this it's clear that we have high sparsity in each genre.
 
-## Unknown words
+## Unknown Words
 
 We now assess the out-of-vocabulary (OOV) rate.
-The corpora for each genre was split: 80% for training, 10% for validation, and 10% for the final model testing.
+The corpora for each genre was split, 80% for training, 10% for validation, and 10% for the final model testing.
 An OOV set was computed as the set of unique words in the validation dataset but not in the training dataset.
 From this we computed the OOV rate as the percentage of OOV in the validation dataset.
 The following table shows the rates for each genre.
