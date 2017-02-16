@@ -1,0 +1,56 @@
+---
+title: "YM-1B"
+author: "Dylan Stark & Jaci Devine"
+date: "2/15/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(tidytext)
+library(widyr)
+
+library(courseraswiftkey)
+```
+
+```{r}
+data(en_us_news)
+```
+
+```{r}
+text <- en_us_news %>%
+  sample_n(1000)
+```
+
+```{r}
+word_cors <- text %>%
+  unnest_tokens(word, text) %>%
+  group_by(word) %>%
+  filter(n() >= 20) %>%
+  pairwise_cor(word, line, sort = TRUE)
+
+word_cors
+```
+
+```{r}
+word_cors %>%
+  filter(item1 == "than")
+```
+
+```{r}
+ym_1b <- word_cors %>%
+  group_by(item1) %>%
+  top_n(3, correlation)
+
+ym_1b %>%
+  filter(item1 == "than")
+```
+
+```{r}
+write_rds(ym_1b, path = "ym_1b.rds")
+```
+
