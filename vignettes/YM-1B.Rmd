@@ -1,6 +1,6 @@
 ---
 title: "YM-1B"
-author: "Dylan Stark & Jaci Devine"
+author: "Dylan Stark"
 date: "2/15/2017"
 output: html_document
 ---
@@ -13,27 +13,75 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(tidytext)
 library(widyr)
+library(modelr)
+library(pryr)
 
 library(courseraswiftkey)
 ```
 
 ```{r}
 data(en_us_news)
+
+set.seed(42)
+```
+
+## Summary
+
+Simple pairwise word correlation model.
+Meant to be a simple toy to stress development of shinyapp prototype and general evaluation framework.
+
+## Prototype
+
+Parameters:
+
+* `news_frac` -- fraction of news lines to sample
+* `threshold` -- minimum number of occurrences of a word
+* `max_pairs` -- maximum number of associations to return per word; takes top-n
+
+```{r}
+ym_1b <- function(x, frac = 0.10, threshold = 10, max_pairs = 3) {
+  x %>%
+    as.data.frame() %>%
+    sample_frac(frac) %>%
+    unnest_tokens(word, text) %>%
+    group_by(word) %>%
+    filter(n() >= threshold) %>%
+    pairwise_cor(word, line, sort = TRUE) %>%
+    group_by(item1) %>%
+    top_n(max_pairs, correlation) %>%
+    ungroup()
+}
+```
+
+## Evaluation
+
+Metrics:
+
+* Size of in-memory dataset
+
+Start by partitioning the original dataset into training test sets.
+
+```{r}
+en_us_news_resample <- en_us_news %>%
+  resample_partition(c(train = 0.80, validate = 0.10, test = 0.10))
+```
+
+### Frac: 0.10; Threshold: 10; Max pairs: 3
+
+```{r}
+news_frac <- 0.10
+threshold <- 10
+max_pairs <- 3
 ```
 
 ```{r}
-text <- en_us_news %>%
-  sample_n(1000)
-```
+word_cors <- en_us_news_resample$train$data %>%
+  sample_frac(0.10) %>%
+  ym_1b(frac = news_frac, threshold = threshold, max_pairs = max_pairs)
 
-```{r}
-word_cors <- text %>%
-  unnest_tokens(word, text) %>%
-  group_by(word) %>%
-  filter(n() >= 20) %>%
-  pairwise_cor(word, line, sort = TRUE)
-
+str(word_cors)
 word_cors
+object_size(word_cors)
 ```
 
 ```{r}
@@ -44,13 +92,55 @@ word_cors %>%
 ```{r}
 ym_1b <- word_cors %>%
   group_by(item1) %>%
-  top_n(3, correlation)
+  top_n(1, correlation)
 
 ym_1b %>%
   filter(item1 == "than")
 ```
 
 ```{r}
-write_rds(ym_1b, path = "ym_1b.rds")
+#write_rds(ym_1b, path = "ym_1b.rds")
+```
+
+Create bigrams from validation dataset.
+
+```{r}
+test_pairs <- en_us_news_resample$validate$data %>%
+  sample_frac(0.10) %>%
+  unnest_tokens(pair, text, token = "ngrams", n = 2) %>%
+  separate(pair, c("left", "right"), sep = " ")
+```
+
+```{r}
+test_pairs %>%
+  filter(line == 849) %>%
+  left_join(ym_1b, by = c("left" = "item1")) %>%
+  mutate(pred = identical(right, item2)) %>%
+  .[["pred"]] %>%
+  sum()
+```
+
+```{r}
+p_ngram <- function()
+```
+
+### K-fold cross validation
+
+
+Split the training data $k$ partitions.
+
+```{r}
+en_us_news_cv5 <- en_us_news_resample$train$data %>%
+  sample_frac(0.10) %>%
+  crossv_kfold(5)
+en_us_news_cv5
+```
+
+Generate a model for each split.
+
+```{r}
+ym_1b_cv <- en_us_news_cv5 %>%
+  mutate(word_cors = map(train, ym_1b, frac = 0.10, threshold = 20, max_pairs = 3))
+ym_1b_cv
 ```
 

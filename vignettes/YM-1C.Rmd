@@ -1,0 +1,352 @@
+---
+title: "YM-1C"
+author: "Dylan Stark"
+date: "2/20/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(tidytext)
+
+library(courseraswiftkey)
+```
+
+```{r}
+data("en_us_news")
+data("en_us_blogs")
+data("en_us_twitter")
+
+set.seed(42)
+```
+
+## Summary
+
+Bigram model with add-k smoothing.
+
+## Prototype
+
+Given a tidy dataset of lines of text, produce bigram probabilities.
+
+* Add unknown words
+    * "replace the first occurrence of every word type in the training data by <UNK>" (Jurafsky)
+
+```{r}
+ym_1c <- function(x) {
+  df <- as.data.frame(x) %>%
+    mutate(text = paste("s123", text, "321e"))
+  
+  unigram_counts <- df %>%
+    unnest_tokens(word, text) %>%
+    count(word) %>%
+    rename(n_left = n)
+ 
+  df %>%
+    unnest_tokens(pair, text, token = "ngrams", n = 2, collapse = FALSE) %>%
+    separate(pair, into = c("left", "right"), sep = " ", remove = FALSE) %>%
+    count(left, right) %>%
+    inner_join(unigram_counts, by = c("left" = "word")) %>%
+    mutate(mle = n / n_left) %>%
+    ungroup()
+}
+```
+
+### Simple bigram model
+
+```{r}
+add_boundaries <- function(data, start = "s1", stop = "s2") {
+  data %>%
+    mutate(text = paste(start, text, stop))
+}
+
+add_unknowns <- function(data, symbol = "s3") {
+  data %>%
+    unnest_tokens(word, text) %>%
+    group_by(word) %>%
+    mutate(word2 = lag(word, n = 1, default = symbol)) %>%
+    group_by(line) %>%
+    summarize(text = paste(word2, collapse = " "))
+}
+```
+
+```{r}
+en_us_news_resample <- en_us_news %>%
+  resample_partition(c(train = 0.80, validate = 0.10, test = 0.10))
+en_us_blogs_resample <- en_us_blogs %>%
+  resample_partition(c(train = 0.80, validate = 0.10, test = 0.10))
+en_us_twitter_resample <- en_us_twitter %>%
+  resample_partition(c(train = 0.80, validate = 0.10, test = 0.10))
+```
+
+```{r}
+ex1_news <- en_us_news_resample$train$data %>%
+  sample_frac(1.0) %>%
+  add_boundaries() %>%
+  add_unknowns()
+ex1_blogs <- en_us_blogs_resample$train$data %>%
+  sample_frac(1.0) %>%
+  add_boundaries() %>%
+  add_unknowns()
+ex1_twitter <- en_us_twitter_resample$train$data %>%
+  sample_frac(1.0) %>%
+  add_boundaries() %>%
+  add_unknowns()
+ex1 <- rbind(
+  ex1_news,
+  ex1_blogs,
+  ex1_twitter
+)
+
+# Count words
+ex1_c1 <- ex1 %>%
+  unnest_tokens(word, text) %>%
+  count(word) %>%
+  rename(c1 = n)
+ex1_c1 %>%
+  arrange(desc(c1))
+
+# Count bigrams
+ex1_c2 <- ex1 %>%
+  unnest_tokens(pair, text, token = "ngrams", n = 2, collapse = FALSE) %>%
+  separate(pair, into = c("left", "right"), sep = " ", remove = FALSE) %>%
+  count(left, right) %>%
+  rename(c2 = n)
+ex1_c2 %>%
+  arrange(desc(c2))
+
+# Compute add-k smoothing
+k <- 0.01
+V <- nrow(ex1_c1)
+ex1_pk <- ex1_c2 %>%
+  inner_join(ex1_c1, by = c("left" = "word")) %>%
+  mutate(pk = (c2 + k) / (c1 + k * V)) %>%
+  ungroup()
+ex1_pk %>%
+  arrange(desc(pk))
+
+# Predict follow-on from single word
+w <- "an"
+ex1_w <- ex1_pk %>%
+  filter(left == w) %>%
+  filter(!(right %in% c("s1", "s2", "s3"))) %>%
+  arrange(desc(pk))
+ex1_w %>%
+  sample_n(3, weight = pk)
+
+# Predict follow-on from sentence
+s <- "I want an"
+w <- str_trim(str_extract(s, "\\s\\w+$"))
+ex1_s <- ex1_pk %>%
+  filter(left == w) %>%
+  filter(!(right %in% c("s1", "s2", "s3"))) %>%
+  arrange(desc(pk))
+ex1_w %>%
+  sample_n(3, weight = pk) %>%
+  transmute(s = paste(s, right))
+```
+
+### Trigram model
+
+```{r}
+# Count trigrams
+ex1_c3 <- ex1 %>%
+  unnest_tokens(pair, text, token = "ngrams", n = 3, collapse = FALSE) %>%
+  separate(pair, into = c("w1", "w2", "w3"), sep = " ", remove = FALSE) %>%
+  count(w1, w2, w3) %>%
+  rename(c3 = n)
+ex1_c3 %>%
+  arrange(desc(c3))
+
+# Compute add-k smoothing
+k <- 0.01
+V <- nrow(ex1_c2)
+ex1_pk <- ex1_c3 %>%
+  inner_join(ex1_c2, by = c("w1" = "left", "w2" = "right")) %>%
+  mutate(pk = (c3 + k) / (c2 + k * V)) %>%
+  ungroup()
+ex1_pk %>%
+  arrange(desc(pk))
+
+# 5-gram model
+k <- 0.01
+V = nrow(ex1_c4)
+ex1_pk5 <- ex1_c5 %>%
+  inner_join(ex1_c4, by = c("w1", "w2", "w3", "w4")) %>%
+  mutate(pk)
+
+# Predict follow-on from single word
+w <- "an"
+ex1_w <- ex1_pk %>%
+  filter(w2 == w) %>%
+  filter(!(w3 %in% c("s1", "s2", "s3"))) %>%
+  arrange(desc(pk))
+ex1_w %>%
+  sample_n(3, weight = pk)
+
+# Predict follow-on from sentence
+predict_bigram <- function(data, str, start = "s1", stop = "s2", symbol = "s3") {
+  words <- rev(rev(str_split(str, " ")[[1]])[1:2])
+  bigram_data <- data %>%
+    filter(w1 %in% c(ws[[1]], symbol)) %>%
+    filter(!(w2 %in% c("s1", "s2", "s3")))
+}
+
+# Predict follow-on from sentence
+predict_trigram <- function(data, strs, start = "s1", stop = "s2", symbol = "s3") {
+  text <- strs %>%
+    unnest_tokens(word, text) %>%
+    mutate(w = paste0('t', row_number() - n() + 3)) %>%
+    spread(w, word)
+  
+  text %>%
+    left_join(data, by = c("t1" = "w1", "t2" = "w2"))
+}
+
+predict_5gram <- function(data, strs, start = "s1", stop = "s2", symbol = "s3") {
+  text <- strs %>%
+    unnest_tokens(word, text) %>%
+    mutate(w = paste0('t', row_number() - n() + 3)) %>%
+    spread(w, word)
+  
+  text %>%
+    left_join(data, by = c("t1" = "w1", "t2" = "w2", "t3" = "w3", "t4" = "w4"))
+}
+
+s <- "I want an" %>%
+  data.frame(text = ., stringsAsFactors = FALSE) %>%
+  add_boundaries()
+s <- "I want 10 year" %>%
+  data.frame(text = ., stringsAsFactors = FALSE) %>%
+  add_boundaries()
+s <- "The guy in front of me just bought a pound of bacon, a bouquet, and a case of"
+s_prime <- s %>%
+  data.frame(text = ., stringsAsFactors = FALSE) %>%
+  add_boundaries()
+ex1_w3 <- ex1_pk %>%
+  predict_trigram(s_prime) %>%
+  arrange(desc(pk))
+ex1_w3
+ex1_w3 %>%
+  transmute(s = paste(s, w3))
+
+word_gen <- function(data) {
+  function(strs) {
+    strs %>%
+      data.frame(text = ., stringsAsFactors = FALSE) %>%
+      add_boundaries() %>%
+      predict_trigram(data, .) %>%
+      arrange(desc(pk)) %>%
+      transmute(s = paste(strs, w3))
+  }
+}
+complete_sentence <- word_gen(ex1_pk)
+complete_sentence("The guy in front of me just bought a pound of bacon, a bouquet, and a case of")
+complete_sentence("You're the reason why I smile everyday. Can you follow me please? It would mean the")
+complete_sentence("Hey sunshine, can you follow me and make me the")
+complete_sentence("Very early observations on the Bills game: Offense still struggling but the")
+complete_sentence("Go on a romantic date at the")
+complete_sentence("Well I'm pretty sure my granny has some old bagpipes in her garage I'll dust them off and be on my")
+complete_sentence("Ohhhhh #PointBreak is on tomorrow. Love that film and haven't seen it in quite some")
+complete_sentence("After the ice bucket challenge Louis will push his long wet hair out of his eyes with his little")
+complete_sentence("Be grateful for the good times and keep the faith during the")
+complete_sentence("If this isn't the cutest thing you've ever seen, then you must be")
+
+tests <- tribble(
+  ~question, ~sentence, ~next_words,
+  1, "The guy in front of me just bought a pound of bacon, a bouquet, and a case of", c("beer", "soda", "cheese", "pretzels"),
+  2, "You're the reason why I smile everyday. Can you follow me please? It would mean the", c("world", "most", "universe", "best"),
+  3, "Hey sunshine, can you follow me and make me the", c("bluest", "smelliest", "saddest", "happiest"),
+  4, "Very early observations on the Bills game: Offense still struggling but the", c("defense", "referees", "crowd", "players"),
+  5, "Go on a romantic date at the", c("beach", "mall", "grocery", "movies"),
+  6, "Well I'm pretty sure my granny has some old bagpipes in her garage I'll dust them off and be on my", c("way", "phone", "horse", "motorcycle"),
+  7, "Ohhhhh #PointBreak is on tomorrow. Love that film and haven't seen it in quite some", c("thing", "time", "weeks", "years"),
+  8, "After the ice bucket challenge Louis will push his long wet hair out of his eyes with his little", c("eyes", "ears", "fingers", "toes"),
+  9, "Be grateful for the good times and keep the faith during the", c("bad", "sad", "worse", "hard"),
+  10, "If this isn't the cutest thing you've ever seen, then you must be", c("callous", "insensitive", "insane", "asleep")
+)
+tests
+
+rank_test <- function(stub, l, data) {
+  complete_sentence <- word_gen(data)
+  complete_sentence(stub) %>%
+  filter(s %in% paste(stub, l))
+}
+rank_test("The guy in front of me just bought a pound of bacon, a bouquet, and a case of", c("beer", "soda", "cheese", "pretzels"), ex1_pk)
+rank_test("Go on a romantic date at the", c("beach", "mall", "grocery", "movies"), data = ex1_pk)
+
+tests %>%
+  mutate(full = map2(sentence, next_words, rank_test, data = ex1_pk)) %>%
+  select(question, full) %>%
+  unnest(full)
+```
+
+## Evaluation
+
+
+Build maximum likelihood estimation (MLE) based on sample data.
+
+```{r}
+bigram_probs <- en_us_news_resample$train$data %>%
+  sample_frac(0.10) %>%
+  ym_1c()
+
+str(bigram_probs)
+bigram_probs
+object_size(bigram_probs)
+summary(bigram_probs)
+```
+
+```{r}
+bigram_probs %>%
+  filter(left == "than") %>%
+  arrange(desc(mle))
+```
+
+```{r}
+bigram_probs %>%
+  filter(right == "321e")
+```
+
+### Toy sample
+
+```{r}
+toy <- data.frame(text = c(
+  "I am Sam",
+  "Sam I am",
+  "I do not like green eggs and ham"
+))
+
+toy_probs <- toy %>%
+  ym_1c()
+
+toy_probs %>%
+  select(-n, -n_left)
+```
+
+```{r}
+toy %>%
+  mutate(text = paste("s123", text, "321e")) %>%
+    unnest_tokens(pair, text, token = "ngrams", n = 2, collapse = FALSE) %>%
+    separate(pair, into = c("left", "right"), sep = " ", remove = FALSE)
+```
+
+```{r}
+p_sentence <- function(data, s) {
+  s <- paste("s123", s, "321e")
+  df <- data.frame(text = s, stringsAsFactors = FALSE) %>%
+    unnest_tokens(pair, text, token = "ngrams", n = 2, collapse = FALSE) %>%
+    separate(pair, into = c("left", "right"), sep = " ") %>%
+    left_join(data, by = c("left", "right")) %>%
+    summarize(prob = prod(mle))
+  
+  df
+}
+
+p_sentence(toy_probs, "Sam I am")
+p_sentence(toy_probs, "Hi there")
+```
+
