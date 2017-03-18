@@ -12,16 +12,419 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(tidyverse)
 library(tidytext)
+library(modelr)
 
 library(courseraswiftkey)
 ```
 
 ```{r}
 data("en_us_news")
-data("en_us_blogs")
 data("en_us_twitter")
+data("en_us_blogs")
+```
 
+```{r}
+add_boundaries <- function(data, start = "_s_start", stop = "_s_end") {
+  data %>%
+    mutate(text = paste(start, text, stop))
+}
+
+add_unknowns <- function(data, symbol = "_s_unk") {
+  data %>%
+    unnest_tokens(word, text) %>%
+    group_by(word) %>%
+    mutate(word2 = lag(word, n = 1, default = symbol)) %>%
+    group_by(line) %>%
+    summarize(text = paste(word2, collapse = " "))
+}
+
+
+
+count_trigrams <- function(data) {
+  data %>%
+    unnest_tokens(triple, text, token = "ngrams", n = 3, collapse = FALSE) %>%
+    separate(triple, into = c("w1", "w2", "w3"), sep = " ", remove = FALSE) %>%
+    count(w1, w2, w3) %>%
+    ungroup()
+}
+
+build_unigram_model <- function(word_counts, k = 0.01) {
+  word_counts %>%
+    mutate(prob = (n + k) / (sum(n) + (k * n())))
+}
+
+build_bigram_model <- function(word_counts, bigram_counts, k = 0.01) {
+  V <- nrow(word_counts)
+  bigram_counts %>%
+    inner_join(word_counts, by = c("w1")) %>%
+    rename(c1 = n.y, c2 = n.x) %>%
+    mutate(prob = (c2 + k) / (c1 + k * V)) %>%
+    ungroup()
+}
+
+build_trigram_model <- function(bigram_counts, trigram_counts, k = 0.01) {
+  V <- nrow(bigram_counts)
+  trigram_counts %>%
+    inner_join(bigram_counts, by = c("w1", "w2")) %>%
+    rename(c1 = n.y, c2 = n.x) %>%
+    mutate(prob = (c2 + k) / (c1 + k * V)) %>%
+    ungroup()
+}
+```
+
+## Data
+
+Generate train-test-validate split.
+
+```{r}
 set.seed(42)
+
+en_us_news_resample <- en_us_news %>%
+  resample_partition(c(train = 0.80, validate = 0.10, test = 0.10))
+
+en_us <- rbind(
+  en_us_news,
+  en_us_twitter,
+  en_us_blogs
+) %>%
+  resample_partition(c(train = 0.80, validate = 0.10, test = 0.10))
+```
+
+Generate toy dataset.
+
+```{r}
+toy <- tribble(
+  ~line, ~text,
+  1, "I am Sam",
+  2, "Sam I am",
+  3, "I do not like green eggs and ham"
+) %>%
+  add_boundaries()
+```
+
+Set up train-test table.
+
+```{r}
+frac <- 1.0
+
+news_train <- en_us_news_resample$train$data %>%
+  sample_frac(frac) %>%
+  add_boundaries() %>%
+  add_unknowns()
+
+news_validate <- en_us_news_resample$validate$data %>%
+  sample_frac(frac) %>%
+  add_boundaries()
+
+us_train <- en_us$train$data %>%
+  sample_frac(frac) %>%
+  add_boundaries() %>%
+  add_unknowns()
+
+us_validate <- en_us$validate$data %>%
+  sample_frac(frac) %>%
+  add_boundaries()
+
+tbl <- tribble(
+  ~desc, ~train, ~validate,
+  #"toy", toy, toy,
+  #"news", news_train, news_validate,
+  "us", us_train, us_validate
+) %>%
+  mutate(word_counts = map(train, count_words),
+         unigram_model = map(word_counts, build_unigram_model),
+         bigram_counts = map(train, count_bigrams),
+         bigram_model = map2(word_counts, bigram_counts, build_bigram_model),
+         trigram_counts = map(train, count_trigrams),
+         trigram_model = map2(bigram_counts, trigram_counts, build_trigram_model))
+tbl
+```
+
+Look at unigram model for toy set.
+
+```{r}
+tbl %>%
+  filter(desc == "toy") %>%
+  unnest(unigram_model) %>%
+  arrange(desc(prob))
+```
+
+Look at bigram model for toy set.
+
+```{r}
+toy_bigrams <- tbl %>%
+  filter(desc == "toy") %>%
+  unnest(bigram_model)
+
+toy_bigrams %>%
+  arrange(desc(prob)) %>%
+  head(10)
+
+p_bigram <- function(y, x, data) {
+  y <- tolower(y)
+  x <- tolower(x)
+  
+  data %>%
+    filter(w1 == x, w2 == y)
+}
+p_bigram("I", "_s_start", toy_bigrams) 
+p_bigram("Sam", "_s_start", toy_bigrams)
+p_bigram("am", "I", toy_bigrams)
+p_bigram("_s_end", "Sam", toy_bigrams)
+p_bigram("Sam", "am", toy_bigrams)
+p_bigram("do", "I", toy_bigrams)
+```
+
+Look at unigram model.
+
+```{r}
+news_unigrams <- tbl %>%
+  filter(desc == "news") %>%
+  unnest(unigram_model)
+
+news_unigrams %>%
+  arrange(desc(prob)) %>%
+  head(10)
+```
+
+Look at bigram model.
+
+```{r}
+news_bigrams <- tbl %>%
+  filter(desc == "news") %>%
+  unnest(bigram_model)
+
+news_bigrams %>%
+  arrange(desc(prob)) %>%
+  head(10)
+```
+
+Look at trigram model.
+
+```{r}
+news_trigrams <- tbl %>%
+  filter(desc == "news") %>%
+  unnest(trigram_model)
+
+news_trigrams %>%
+  arrange(desc(prob)) %>%
+  head(10)
+```
+
+Compute first-order Markov probability.
+Studying computing of probability of "Sam I am".
+
+```{r}
+# P("Sam" | <s>)
+p_sam_s <- news_bigrams %>%
+  filter(w1 == "_s_start" & (w2 == "sam" | w2 == "_s_unk")) %>%
+  arrange(desc(prob)) %>%
+  .[["prob"]]
+```
+
+```{r}
+# P("I" | "Sam")
+m_i_sam <- news_bigrams %>%
+  filter((w1 == "sam" | w1 == "_s_unk") & (w2 == "i" | w2 == "_s_unk")) %>%
+  arrange(desc(prob))
+m_i_sam
+p_i_sam <- m_i_sam[[1, "prob"]]
+```
+
+**Q**: How do we choose between a partial match and a wholy unknown match?
+
+```{r}
+# P("am" | "I")
+matches <- news_bigrams %>%
+  filter((w1 == "i" | w1 == "_s_unk") & (w2 == "am" | w2 == "_s_unk")) %>%
+  arrange(desc(prob))
+matches
+p_am_i <- matches[[1, "prob"]]
+```
+
+**Q**: How do we choose between partial and unknown matches and an explicit match with lower probability?
+
+```{r}
+# P(</s> | "am")
+matches <- news_bigrams %>%
+  filter((w1 == "am" | w1 == "_s_unk") & (w2 == "_s_end")) %>%
+  arrange(desc(prob))
+matches
+p_s_am <- matches[[1, "prob"]]
+```
+
+
+```{r}
+# P("Sam I am") = P("Sam" | <s>) * P("I" | "Sam") * P("am" | "I") * P(</s> | "am")
+p_sam_s * p_i_sam * p_am_i * p_s_am
+```
+
+Implementing filter with a join.
+
+```{r}
+s <- tribble(
+  ~ bigram, ~ w1, ~ w2,
+  "<s> Sam", "_s_start", "sam",
+  "<s> Sam", "_s_start", "_s_unk", # fill
+  "Sam I", "sam", "i",
+  "Sam I", "_s_unk", "i",          # fill
+  "Sam I", "sam", "_s_unk",        # fill
+  "Sam I", "_s_unk", "_s_unk",     # fill
+  "I am", "i", "am",
+  "I am", "_s_unk", "am",          # fill
+  "I am", "i", "_s_unk",           # fill
+  "I am", "_s_unk", "_s_unk",      # fill
+  "am </s>", "am", "_s_end",
+  "am </s>", "_s_unk", "_s_end"    # fill
+)
+s
+s %>%
+  left_join(news_bigrams, by = c("w1", "w2")) %>%
+  group_by(bigram) %>%
+  summarize(prob = max(prob, na.rm = TRUE)) %>%
+  ungroup() %>%
+  summarize(prob = prod(prob))
+```
+
+```{r}
+tribble(
+  ~ text,
+  "Sam I am"
+) %>%
+  # Create bigrams
+  add_boundaries() %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2) %>%
+  separate(bigram, into = c("w1", "w2"), sep = " ", remove = FALSE) %>%
+  # Create all combinations
+  mutate(u1 = ifelse(w1 != "_s_start", "_s_unk", NA)) %>%
+  gather(k1, w1, w1, u1) %>%
+  select(-k1) %>%
+  na.omit() %>%
+  select(bigram, w1, w2) %>%
+  mutate(u2 = ifelse(w2 != "_s_end", "_s_unk", NA)) %>%
+  gather(k2, w2, w2, u2) %>%
+  select(-k2) %>%
+  na.omit() %>%
+  select(bigram, w1, w2) %>%
+  arrange(bigram) %>%
+  # Join with MLEs for bigrams
+  left_join(news_bigrams, by = c("w1", "w2")) %>%
+  # Filter out missing values
+  na.omit() %>%
+  # Pick the most-specific entry
+  group_by(bigram) %>%
+  arrange(desc(w1), desc(w2), desc(prob)) %>%
+  mutate(row = row_number()) %>%
+  filter(row == 1) %>%
+  # Pick the entries with highest probability
+  #group_by(bigram) %>%
+  #arrange(desc(prob)) %>%
+  #mutate(row = row_number()) %>%
+  #filter(row == 1) %>%
+  # Compute probability
+  summarize(prob = max(prob)) %>%
+  ungroup() %>%
+  summarize(prob = prod(prob))
+```
+
+Calculating perplexit using validation set.
+
+```{r}
+# M = total #(words) in hold-out
+M <- news_validate %>%
+  unnest_tokens(word, text) %>%
+  count(word) %>%
+  summarize(total = sum(n)) %>%
+  .[["total"]]
+M
+
+# perplexit(s_i)
+s1 <- news_validate %>%
+  select(text) %>%
+  head(1) %>%
+  .[["text"]]
+s1
+
+s2 <- news_train %>%
+  select(text) %>%
+  sample_n(1) %>%
+  .[["text"]]
+s2
+```
+
+```{r}
+tribble(
+  ~ text,
+  "_s_start while happy owners were helping customers the little dog who looks to be a jerk jumped onto a chair and then onto a desk on top of the desk were four packs of dog treats _s_end"
+) %>%
+  # Create bigrams
+  unnest_tokens(bigram, text, token = "ngrams", n = 2) %>%
+  separate(bigram, into = c("w1", "w2"), sep = " ", remove = FALSE) %>%
+  # Create all combinations
+  mutate(u1 = ifelse(w1 != "_s_start", "_s_unk", NA)) %>%
+  gather(k1, w1, w1, u1) %>%
+  select(-k1) %>%
+  na.omit() %>%
+  select(bigram, w1, w2) %>%
+  mutate(u2 = ifelse(w2 != "_s_end", "_s_unk", NA)) %>%
+  gather(k2, w2, w2, u2) %>%
+  select(-k2) %>%
+  na.omit() %>%
+  select(bigram, w1, w2) %>%
+  arrange(bigram) %>%
+  # Join with MLEs for bigrams
+  left_join(news_bigrams, by = c("w1", "w2")) %>%
+  # Filter out missing values
+  na.omit() %>%
+  # Pick the most-specific entry
+  group_by(bigram) %>%
+  arrange(desc(w1), desc(w2), desc(prob)) %>%
+  mutate(row = row_number()) %>%
+  filter(row == 1) %>%
+  # Pick the entries with highest probability
+  #group_by(bigram) %>%
+  #arrange(desc(prob)) %>%
+  #mutate(row = row_number()) %>%
+  #filter(row == 1) %>%
+  # Compute probability
+  summarize(prob = max(prob)) %>%
+  ungroup() %>%
+  summarize(prob = prod(prob)) %>%
+  .[["prob"]]
+```
+
+Assess quality of unigram model.
+
+```{r}
+# Calculate perplexity.
+#
+# Assume that test set has start and end markers.
+perplexity <- function(test, model) {
+  test_words <- test %>%
+    unnest_tokens(word, text)
+    
+  total_count <- test_words %>%
+    filter(word != "_s_start") %>%
+    distinct(word) %>%
+    count() %>%
+    .[["n"]]
+
+  pp <- test_words %>%
+    inner_join(model, by = c("word" = "w1")) %>%
+    mutate(log_prob = log(prob)) %>%
+    summarize(sum_log_prob = sum(log_prob)) %>%
+    mutate(prod_prob = exp(sum_log_prob),
+           pp = prod_prob^(-1 / total_count))
+  
+  pp
+}
+
+news_validate %>%
+  unnest_tokens(word, text)
+
+pp_test <- perplexity(news_validate, news_unigrams)
+pp_test
+pp_test <- perplexity(toy, news_unigrams)
 ```
 
 ## Summary
@@ -36,97 +439,11 @@ Given a tidy dataset of lines of text, produce bigram probabilities.
     * "replace the first occurrence of every word type in the training data by <UNK>" (Jurafsky)
 
 ```{r}
-ym_1c <- function(x) {
-  df <- as.data.frame(x) %>%
-    mutate(text = paste("s123", text, "321e"))
-  
-  unigram_counts <- df %>%
-    unnest_tokens(word, text) %>%
-    count(word) %>%
-    rename(n_left = n)
- 
-  df %>%
-    unnest_tokens(pair, text, token = "ngrams", n = 2, collapse = FALSE) %>%
-    separate(pair, into = c("left", "right"), sep = " ", remove = FALSE) %>%
-    count(left, right) %>%
-    inner_join(unigram_counts, by = c("left" = "word")) %>%
-    mutate(mle = n / n_left) %>%
-    ungroup()
-}
 ```
 
-### Simple bigram model
+
 
 ```{r}
-add_boundaries <- function(data, start = "s1", stop = "s2") {
-  data %>%
-    mutate(text = paste(start, text, stop))
-}
-
-add_unknowns <- function(data, symbol = "s3") {
-  data %>%
-    unnest_tokens(word, text) %>%
-    group_by(word) %>%
-    mutate(word2 = lag(word, n = 1, default = symbol)) %>%
-    group_by(line) %>%
-    summarize(text = paste(word2, collapse = " "))
-}
-```
-
-```{r}
-en_us_news_resample <- en_us_news %>%
-  resample_partition(c(train = 0.80, validate = 0.10, test = 0.10))
-en_us_blogs_resample <- en_us_blogs %>%
-  resample_partition(c(train = 0.80, validate = 0.10, test = 0.10))
-en_us_twitter_resample <- en_us_twitter %>%
-  resample_partition(c(train = 0.80, validate = 0.10, test = 0.10))
-```
-
-```{r}
-ex1_news <- en_us_news_resample$train$data %>%
-  sample_frac(1.0) %>%
-  add_boundaries() %>%
-  add_unknowns()
-ex1_blogs <- en_us_blogs_resample$train$data %>%
-  sample_frac(1.0) %>%
-  add_boundaries() %>%
-  add_unknowns()
-ex1_twitter <- en_us_twitter_resample$train$data %>%
-  sample_frac(1.0) %>%
-  add_boundaries() %>%
-  add_unknowns()
-ex1 <- rbind(
-  ex1_news,
-  ex1_blogs,
-  ex1_twitter
-)
-
-# Count words
-ex1_c1 <- ex1 %>%
-  unnest_tokens(word, text) %>%
-  count(word) %>%
-  rename(c1 = n)
-ex1_c1 %>%
-  arrange(desc(c1))
-
-# Count bigrams
-ex1_c2 <- ex1 %>%
-  unnest_tokens(pair, text, token = "ngrams", n = 2, collapse = FALSE) %>%
-  separate(pair, into = c("left", "right"), sep = " ", remove = FALSE) %>%
-  count(left, right) %>%
-  rename(c2 = n)
-ex1_c2 %>%
-  arrange(desc(c2))
-
-# Compute add-k smoothing
-k <- 0.01
-V <- nrow(ex1_c1)
-ex1_pk <- ex1_c2 %>%
-  inner_join(ex1_c1, by = c("left" = "word")) %>%
-  mutate(pk = (c2 + k) / (c1 + k * V)) %>%
-  ungroup()
-ex1_pk %>%
-  arrange(desc(pk))
 
 # Predict follow-on from single word
 w <- "an"
@@ -151,6 +468,46 @@ ex1_w %>%
 
 ### Trigram model
 
+Using trigram model for Quiz 2.
+
+```{r}
+us_trigrams <- tbl %>%
+  filter(desc == "us") %>%
+  unnest(trigram_model)
+
+quiz_2 <- tribble(
+  ~ question, ~ text, ~ a, ~ b, ~ c, ~ d,
+  1, "When you breathe, I want to be the air for you. I'll be there for you, I'd live and I'd", "sleep", "die", "give", "eat",
+  2, "Guy at my table's wife got up to go to the bathroom and I asked about dessert and he started telling me about his", "marital", "financial", "horticultural", "spiritual",
+  3, "I'd give anything to see arctic monkeys this", "weekend", "month", "morning", "decade",
+  4, "Talking to your mom has the same effect as a hug and helps reduce your", "sleepiness", "stress", "hunger", "happiness",
+  5, "When you were in Holland you were like 1 inch away from me but you hadn't time to take a", "walk", "picture", "minute", "look",
+  6, "I'd just like all of these questions answered, a presentation of evidence, and a jury to settle the", "incident", "account", "matter", "case",
+  7, "I can't deal with unsymetrical things. I can't even hold an uneven number of bags of groceries in each", "arm", "finger", "toe", "hand",
+  8, "Every inch of you is perfect from the bottom to the", "center", "top", "middle", "side",
+  9, "I’m thankful my childhood was filled with imagination and bruises from playing", "inside", "outside", "weekly", "daily",
+  10, "I like how the same people are in almost all of Adam Sandler's", "stories", "novels", "pictures", "movies"
+) %>%
+  gather(option, value, a:d) %>%
+  unite(text, text, value, sep = " ") %>%
+  unnest_tokens(triples, text, token = "ngrams", n = 3) %>%
+  group_by(question, option) %>%
+  filter(n() - row_number() == 0) %>%
+  separate(triples, into = c("w1", "w2", "w3"), sep = " ") %>%
+  mutate(u1 = "_s_unk") %>%
+  gather(k1, w1, w1, u1) %>%
+  select(-k1) %>%
+  mutate(u2 = "_s_unk") %>%
+  gather(k2, w2, w2, u2) %>%
+  select(-k2) %>%
+  ungroup() %>%
+  left_join(us_trigrams, by = c("w1", "w2", "w3")) %>%
+  na.omit() %>%
+  select(question, option, w1, w2, w3, prob) %>%
+  arrange(question, desc(prob))
+quiz_2
+```
+
 ```{r}
 # Count trigrams
 ex1_c3 <- ex1 %>%
@@ -171,22 +528,6 @@ ex1_pk <- ex1_c3 %>%
 ex1_pk %>%
   arrange(desc(pk))
 
-# 5-gram model
-k <- 0.01
-V = nrow(ex1_c4)
-ex1_pk5 <- ex1_c5 %>%
-  inner_join(ex1_c4, by = c("w1", "w2", "w3", "w4")) %>%
-  mutate(pk)
-
-# Predict follow-on from single word
-w <- "an"
-ex1_w <- ex1_pk %>%
-  filter(w2 == w) %>%
-  filter(!(w3 %in% c("s1", "s2", "s3"))) %>%
-  arrange(desc(pk))
-ex1_w %>%
-  sample_n(3, weight = pk)
-
 # Predict follow-on from sentence
 predict_bigram <- function(data, str, start = "s1", stop = "s2", symbol = "s3") {
   words <- rev(rev(str_split(str, " ")[[1]])[1:2])
@@ -205,83 +546,6 @@ predict_trigram <- function(data, strs, start = "s1", stop = "s2", symbol = "s3"
   text %>%
     left_join(data, by = c("t1" = "w1", "t2" = "w2"))
 }
-
-predict_5gram <- function(data, strs, start = "s1", stop = "s2", symbol = "s3") {
-  text <- strs %>%
-    unnest_tokens(word, text) %>%
-    mutate(w = paste0('t', row_number() - n() + 3)) %>%
-    spread(w, word)
-  
-  text %>%
-    left_join(data, by = c("t1" = "w1", "t2" = "w2", "t3" = "w3", "t4" = "w4"))
-}
-
-s <- "I want an" %>%
-  data.frame(text = ., stringsAsFactors = FALSE) %>%
-  add_boundaries()
-s <- "I want 10 year" %>%
-  data.frame(text = ., stringsAsFactors = FALSE) %>%
-  add_boundaries()
-s <- "The guy in front of me just bought a pound of bacon, a bouquet, and a case of"
-s_prime <- s %>%
-  data.frame(text = ., stringsAsFactors = FALSE) %>%
-  add_boundaries()
-ex1_w3 <- ex1_pk %>%
-  predict_trigram(s_prime) %>%
-  arrange(desc(pk))
-ex1_w3
-ex1_w3 %>%
-  transmute(s = paste(s, w3))
-
-word_gen <- function(data) {
-  function(strs) {
-    strs %>%
-      data.frame(text = ., stringsAsFactors = FALSE) %>%
-      add_boundaries() %>%
-      predict_trigram(data, .) %>%
-      arrange(desc(pk)) %>%
-      transmute(s = paste(strs, w3))
-  }
-}
-complete_sentence <- word_gen(ex1_pk)
-complete_sentence("The guy in front of me just bought a pound of bacon, a bouquet, and a case of")
-complete_sentence("You're the reason why I smile everyday. Can you follow me please? It would mean the")
-complete_sentence("Hey sunshine, can you follow me and make me the")
-complete_sentence("Very early observations on the Bills game: Offense still struggling but the")
-complete_sentence("Go on a romantic date at the")
-complete_sentence("Well I'm pretty sure my granny has some old bagpipes in her garage I'll dust them off and be on my")
-complete_sentence("Ohhhhh #PointBreak is on tomorrow. Love that film and haven't seen it in quite some")
-complete_sentence("After the ice bucket challenge Louis will push his long wet hair out of his eyes with his little")
-complete_sentence("Be grateful for the good times and keep the faith during the")
-complete_sentence("If this isn't the cutest thing you've ever seen, then you must be")
-
-tests <- tribble(
-  ~question, ~sentence, ~next_words,
-  1, "The guy in front of me just bought a pound of bacon, a bouquet, and a case of", c("beer", "soda", "cheese", "pretzels"),
-  2, "You're the reason why I smile everyday. Can you follow me please? It would mean the", c("world", "most", "universe", "best"),
-  3, "Hey sunshine, can you follow me and make me the", c("bluest", "smelliest", "saddest", "happiest"),
-  4, "Very early observations on the Bills game: Offense still struggling but the", c("defense", "referees", "crowd", "players"),
-  5, "Go on a romantic date at the", c("beach", "mall", "grocery", "movies"),
-  6, "Well I'm pretty sure my granny has some old bagpipes in her garage I'll dust them off and be on my", c("way", "phone", "horse", "motorcycle"),
-  7, "Ohhhhh #PointBreak is on tomorrow. Love that film and haven't seen it in quite some", c("thing", "time", "weeks", "years"),
-  8, "After the ice bucket challenge Louis will push his long wet hair out of his eyes with his little", c("eyes", "ears", "fingers", "toes"),
-  9, "Be grateful for the good times and keep the faith during the", c("bad", "sad", "worse", "hard"),
-  10, "If this isn't the cutest thing you've ever seen, then you must be", c("callous", "insensitive", "insane", "asleep")
-)
-tests
-
-rank_test <- function(stub, l, data) {
-  complete_sentence <- word_gen(data)
-  complete_sentence(stub) %>%
-  filter(s %in% paste(stub, l))
-}
-rank_test("The guy in front of me just bought a pound of bacon, a bouquet, and a case of", c("beer", "soda", "cheese", "pretzels"), ex1_pk)
-rank_test("Go on a romantic date at the", c("beach", "mall", "grocery", "movies"), data = ex1_pk)
-
-tests %>%
-  mutate(full = map2(sentence, next_words, rank_test, data = ex1_pk)) %>%
-  select(question, full) %>%
-  unnest(full)
 ```
 
 ## Evaluation
@@ -312,27 +576,6 @@ bigram_probs %>%
 ```
 
 ### Toy sample
-
-```{r}
-toy <- data.frame(text = c(
-  "I am Sam",
-  "Sam I am",
-  "I do not like green eggs and ham"
-))
-
-toy_probs <- toy %>%
-  ym_1c()
-
-toy_probs %>%
-  select(-n, -n_left)
-```
-
-```{r}
-toy %>%
-  mutate(text = paste("s123", text, "321e")) %>%
-    unnest_tokens(pair, text, token = "ngrams", n = 2, collapse = FALSE) %>%
-    separate(pair, into = c("left", "right"), sep = " ", remove = FALSE)
-```
 
 ```{r}
 p_sentence <- function(data, s) {

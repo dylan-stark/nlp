@@ -60,7 +60,7 @@ server <- function(input, output) {
   })
 
   output$usage_stats <- renderText({
-    paste0(mem_usage_msg, rv$running_time_msg, collapse = "; ")
+    paste0(mem_usage_msg, "; ", rv$running_time_msg)
   })
 }
 

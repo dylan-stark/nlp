@@ -157,9 +157,9 @@ We also insert `_s_unk` tokens so that our model can work with out-of-vocabulary
 We have to do this because our model uses one word-worth of context.
 
 ```{r}
-add_start_token <- function(data, start = "_s_start") {
+add_start_token <- function(data, start = "_s_start", n = 1) {
   data %>%
-    mutate(text = paste(start, text))
+    mutate(text = paste(paste(rep(start, n), collapse = " "), text))
 }
 
 add_unknowns <- function(data, symbol = "_s_unk") {
@@ -239,47 +239,44 @@ For each pair of words (including the `(_s_start, <word>)` tuple) in the validat
 Accuracy is measured as the proportion of correct predictions.
 
 ```{r}
-predict_unigram_top_n <- function(word, model, n) {
-  model %>%
-    arrange(desc(prob)) %>%
-    head(n) %>%
-    sample_n(1, weight = prob) %>%
-    .[[1, "w1"]]
-}
-
-predict_unigram_weighted <- function(word, model, n) {
-  predict_unigram_top_n(word, model, n = nrow(model))
-}
-
-predict_unigram_top <- function(word, model, n) {
-  predict_unigram_top_n(word, model, n = 1)
+recommend_bigram <- function(model, word, n = 1) {
+  exact_match <- model %>%
+    filter(w1 == word & w2 != "_s_unk") %>%
+    arrange(desc(prob))
+  if (nrow(exact_match) > 0) {
+    return(exact_match[1:n, "w2"][["w2"]])
+  }
+  
+  unk_match <- model %>%
+    filter(w1 == '_s_unk' & w2 != "_s_unk") %>%
+    arrange(desc(prob))
+  return(unk_match[1:n, "w2"][["w2"]])
 }
 
 predict_bigram <- function(model, data) {
-  predict_bigram_ <- function(model, word) {
-    exact_match <- model %>%
-      filter(w1 == word & w2 != "_s_unk") %>%
-      arrange(desc(prob))
-    if (nrow(exact_match) > 0) {
-      return(exact_match[[1, "w2"]])
-    }
-    
-    unk_match <- model %>%
-      filter(w1 == '_s_unk' & w2 != "_s_unk") %>%
-      arrange(desc(prob))
-    return(unk_match[[1, "w2"]])
-  }
-  
   data %>%
     add_start_token() %>%
     unnest_tokens(pair, text, token = "ngrams", n = 2) %>%
     separate(pair, into = c("w1", "w2"), sep = " ") %>%
-    mutate(y2 = map_chr(w1, predict_bigram_, model = model),
+    mutate(y2 = map_chr(w1, recommend_bigram, model = model),
            match = w2 == y2) %>%
     summarize(accuracy = sum(match) / n()) %>%
     .[["accuracy"]]
 }
+
 ```
+
+Test:
+
+```{r}
+recommend_bigram(bigram_tbl[[1, "bigram_model"]], "", 10)
+```
+
+```{r}
+recommend_bigram(bigram_tbl[[1, "bigram_model"]], "because", 10)
+```
+
+Sweep:
 
 ```{r}
 bigram_tbl %>%
@@ -288,3 +285,191 @@ bigram_tbl %>%
 ```
 
 Accuracy is still fairly poor across the board.
+
+### Save
+
+```{r}
+ym_1b_news <- bigram_tbl[[1, "bigram_model"]]
+write_rds(ym_1b_news, path = "ym_1b_news.rds")
+```
+
+## Trigram Model
+
+The trigram model selects the next word based on preceding two word.
+
+We add a two `_s_start` tokens to the beginning of each entry in the training dataset to caputure the beginning word in a `(_s_start, _s_start, <word>)` tuple.
+
+We also insert `_s_unk` tokens so that our model can work with out-of-vocabulary words (i.e., words not seen in the training data set).
+We have to do this because our model uses one word-worth of context.
+
+```{r}
+count_trigrams <- function(data) {
+  data %>%
+    unnest_tokens(triples, text, token = "ngrams", n = 3, collapse = FALSE) %>%
+    separate(triples, into = c("w1", "w2", "w3"), sep = " ", remove = FALSE) %>%
+    count(w1, w2, w3) %>%
+    ungroup()
+}
+
+build_trigram_model <- function(data, k = 1.0) {
+  data <- data %>%
+    add_start_token(n = 2) %>%
+    add_unknowns()
+  
+  bigram_counts <- count_bigrams(data)
+  trigram_counts <- count_trigrams(data)
+  
+  V <- nrow(bigram_counts)
+  
+  trigram_counts %>%
+    inner_join(bigram_counts, by = c("w1", "w2")) %>%
+    rename(c1 = n.y, c2 = n.x) %>%
+    mutate(prob = (c2 + k) / (c1 + k * V)) %>%
+    ungroup()
+}
+
+trigram_tbl <- tbl %>%
+  select(desc, train, validate) %>%
+  mutate(
+    train = map(train, as.data.frame),
+    validate = map(validate, as.data.frame),
+    trigram_k1_model = map(train, build_trigram_model, k = 1),
+    trigram_model = map(train, build_trigram_model, k = 0.001),
+    trigram_k0_model = map(train, build_trigram_model, k = 0)
+  )
+```
+
+### Example suggestions
+
+Example suggestions from news corpus.
+
+```{r}
+trigram_tbl[1, "trigram_model"][[1, 1]] %>%
+  sample_n(3, weight = prob) %>%
+  arrange(desc(prob))
+```
+
+Example suggestions from blogs corpus.
+
+```{r}
+trigram_tbl[2, "trigram_model"][[1, 1]] %>%
+  sample_n(3, weight = prob) %>%
+  arrange(desc(prob))
+```
+
+Example suggestions from news corpus.
+
+```{r}
+trigram_tbl[1, "trigram_model"][[1, 1]] %>%
+  sample_n(3, weight = prob) %>%
+  arrange(desc(prob))
+```
+
+```{r}
+trigram_tbl[1, "trigram_k0_model"][[1, 1]] %>%
+  sample_n(3, weight = prob) %>%
+  arrange(desc(prob))
+```
+
+### Evaluation
+
+For each triple of words (including the `(_s_start, _s_start, <word>)` 3-tuple) in the validation set, predict the third word using the bigram model.
+
+Accuracy is measured as the proportion of correct predictions.
+
+```{r}
+predict_trigram <- function(model, data) {
+  predict_trigram_ <- function(model, word1, word2) {
+    exact_match <- model %>%
+      filter(w1 == word1 & w2 == word2 & w3 != "_s_unk") %>%
+      arrange(desc(prob))
+    if (nrow(exact_match) > 0) {
+      return(exact_match[[1, "w3"]])
+    }
+    
+    unk_match <- model %>%
+      filter(w1 == '_s_unk' & w2 == '_s_unk' & w3 != '_s_unk') %>%
+      arrange(desc(prob))
+    return(unk_match[[1, "w3"]])
+  }
+  
+  data %>%
+    add_start_token(n = 2) %>%
+    unnest_tokens(triple, text, token = "ngrams", n = 3) %>%
+    separate(triple, into = c("w1", "w2", "w3"), sep = " ") %>%
+    mutate(y3 = map2_chr(w1, w2, predict_trigram_, model = model),
+           match = w3 == y3) %>%
+    summarize(accuracy = sum(match) / n()) %>%
+    .[["accuracy"]]
+}
+```
+
+
+```{r}
+trigram_tbl %>%
+  mutate(acc_k_001 = map2_dbl(trigram_model, validate, predict_trigram),
+         acc_k_0 = map2_dbl(trigram_k0_model, validate, predict_trigram),
+         acc_k_1 = map2_dbl(trigram_k1_model, validate, predict_trigram)) %>%
+  select(-train, -validate, -trigram_model, -trigram_k0_model)
+```
+
+## Backoff Model
+
+```{r}
+build_backoff_model <- function(data) {
+  unigram_model <- build_unigram_model(data)
+  bigram_model <- build_bigram_model(data, k = 0.001)
+  trigram_model <- build_trigram_model(data, k = 0.001)
+ 
+  list(
+    "unigram_model" = unigram_model,
+    "bigram_model" = bigram_model,
+    "trigram_model" = trigram_model
+  )
+}
+
+backoff_tbl <- tbl %>%
+  select(desc, train, validate) %>%
+  mutate(
+    train = map(train, as.data.frame),
+    validate = map(validate, as.data.frame),
+    backoff_model = map(train, build_backoff_model)
+  )
+backoff_tbl
+```
+
+```{r}
+predict_backoff <- function(model, data) {
+  predict_backoff_ <- function(model, word1, word2) {
+    exact_match <- model %>%
+      filter(w1 == word1 & w2 == word2 & w3 != "_s_unk") %>%
+      arrange(desc(prob))
+    if (nrow(exact_match) > 0) {
+      return(exact_match[[1, "w3"]])
+    }
+    
+    unk_match <- model %>%
+      filter(w1 == '_s_unk' & w2 == '_s_unk' & w3 != '_s_unk') %>%
+      arrange(desc(prob))
+    return(unk_match[[1, "w3"]])
+  }
+  
+  data %>%
+    add_start_token(n = 2) %>%
+    unnest_tokens(triple, text, token = "ngrams", n = 3) %>%
+    separate(triple, into = c("w1", "w2", "w3"), sep = " ") %>%
+    mutate(y3 = map2_chr(w1, w2, predict_trigram_, model = model),
+           match = w3 == y3) %>%
+    summarize(accuracy = sum(match) / n()) %>%
+    .[["accuracy"]]
+}
+```
+
+
+```{r}
+trigram_tbl %>%
+  mutate(acc_k_001 = map2_dbl(trigram_model, validate, predict_trigram),
+         acc_k_0 = map2_dbl(trigram_k0_model, validate, predict_trigram),
+         acc_k_1 = map2_dbl(trigram_k1_model, validate, predict_trigram)) %>%
+  select(-train, -validate, -trigram_model, -trigram_k0_model)
+```
