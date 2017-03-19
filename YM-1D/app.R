@@ -41,6 +41,11 @@ mem_usage_msg <- paste0("Memory est.: ", prettyNum(object_size(ym_1), big.mark =
 
 recommend <- recommend_bigram
 
+# TODO: find a better place for this
+this_str <- ""
+last_str <- ""
+last_output <- ""
+
 ################################################################################
 
 # Define UI for application that draws a histogram
@@ -58,6 +63,8 @@ ui <- fluidPage(
 server <- function(input, output) {
   rv <- reactiveValues()
   rv$running_time_msg <- "(not run)"
+  rv$update_cloud <- TRUE
+  rv$curr_str <- ""
 
   get_recs <- function(model, input, n = 1) {
     recs <- recommend(model, input, n = n)
@@ -74,25 +81,41 @@ server <- function(input, output) {
              rank = ifelse(is.na(rank), 1, rank))
   }
 
- output$rec_table <- renderTable({
-   start <- proc.time()
-   recs <- get_recs(ym_1, input$user_input, n = 20)
-   total <- proc.time() - start
-   user_time <- total[[1]] + total[[4]]
-   rv$running_time_msg <- paste0("Time est.: ", format(user_time, digits = 3), " sec")
-
-   recs
- })
-
-  output$recs <- renderPlot({
+  output$rec_table <- renderTable({
     start <- proc.time()
     recs <- get_recs(ym_1, input$user_input, n = 20)
     total <- proc.time() - start
     user_time <- total[[1]] + total[[4]]
     rv$running_time_msg <- paste0("Time est.: ", format(user_time, digits = 3), " sec")
 
-    recs %>%
+    recs
+  })
+
+  user_str <- observeEvent(input$user_input, {
+    user_str <- input$user_input
+
+    last_str <<- this_str
+    this_str <<- str_trim(user_str)
+  
+    print(paste0("last_str: ", last_str))
+    print(paste0("this_str: ", this_str))
+    
+    if (this_str != last_str) {
+      rv$curr_str <- this_str
+    }
+  })
+  
+  output$recs <- renderPlot({
+    start <- proc.time()
+    recs <- get_recs(ym_1, rv$curr_str, n = 20)
+    total <- proc.time() - start
+    user_time <- total[[1]] + total[[4]]
+    rv$running_time_msg <- paste0("Time est.: ", format(user_time, digits = 3), " sec")
+
+    last_output <- recs %>%
       with(wordcloud(w2, rank, scale = c(4,1), random.order = FALSE, rot.per = 0.10, colors=brewer.pal(8, "Dark2")))
+    
+    last_output
   })
 
   output$usage_stats <- renderText({
