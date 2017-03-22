@@ -47,7 +47,7 @@ Stop worrying and learn to love the AI
 In three steps:
 
 1. Ingested huge amounts of Twitter, blog, and news writing, so you did't have to
-1. Constructed a multiple $n$-gram model with support for
+1. Constructed a multiple $n$-gram language model with support for
   * out-of-vocab words,
   * add-$k$ smoothing; and,
   * backoff from trigrams to unigrams

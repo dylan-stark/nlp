@@ -96,15 +96,15 @@ server <- function(input, output) {
 
     last_str <<- this_str
     this_str <<- str_trim(user_str)
-  
-    print(paste0("last_str: ", last_str))
-    print(paste0("this_str: ", this_str))
-    
+
+    #print(paste0("last_str: ", last_str))
+    #print(paste0("this_str: ", this_str))
+
     if (this_str != last_str) {
       rv$curr_str <- this_str
     }
   })
-  
+
   output$recs <- renderPlot({
     start <- proc.time()
     recs <- get_recs(ym_1, rv$curr_str, n = 20)
@@ -114,7 +114,7 @@ server <- function(input, output) {
 
     last_output <- recs %>%
       with(wordcloud(w2, rank, scale = c(4,1), random.order = FALSE, rot.per = 0.10, colors=brewer.pal(8, "Dark2")))
-    
+
     last_output
   })
 

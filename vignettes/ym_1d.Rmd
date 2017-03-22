@@ -72,7 +72,7 @@ unigram_tbl <- tbl %>%
   mutate(
     train = map(train, as.data.frame),
     validate = map(validate, as.data.frame),
-    unigram_model = map(train, build_unigram_model)
+    unigram_model = map(train, build_unigram_model, k = 0.001)
   )
 ```
 
@@ -160,6 +160,11 @@ We have to do this because our model uses one word-worth of context.
 add_start_token <- function(data, start = "_s_start", n = 1) {
   data %>%
     mutate(text = paste(paste(rep(start, n), collapse = " "), text))
+}
+
+add_stop_token <- function(data, stop = "_s_stop", n = 1) {
+  data %>%
+    mutate(text = paste(text, paste(rep(stop, n), collapse = " ")))
 }
 
 add_unknowns <- function(data, symbol = "_s_unk") {
@@ -296,29 +301,78 @@ write_rds(ym_1b_news, path = "ym_1b_news.rds")
 ### Perplexity
 
 ```{r}
-compute_perplexity <- function(model, data) {
-  bigrams <- data %>%
+ym_1b_news_unigram <- unigram_tbl[[1, "unigram_model"]]
+
+compute_perplexity <- function(unigram_model, model, data) {
+  data <- data %>%
     add_start_token() %>%
+    add_stop_token() %>%
+    summarize(text = paste(text, collapse = " "))
+  #return(data)
+  
+  # Compute bigram probabilities
+  bigrams <- data %>%
+    #add_start_token() %>%
     unnest_tokens(pair, text, token = "ngrams", n = 2) %>%
     separate(pair, into = c("w1", "w2"), sep = " ") %>%
-    left_join(model, by = c("w1", "w2")) %>%
-    filter(!is.na(prob))
- 
+    filter(!(w1 == "_s_stop" & w2 == "_s_start")) %>%
+    left_join(model, by = c("w1", "w2"))
+  #return(bigrams)
+
   N <- nrow(bigrams) 
   
-  matches <- bigrams %>%
+  # If some bigrams didn't match, use unigrams 
+  unigrams <- bigrams %>%
+    filter(is.na(prob)) %>%
+    select(w2) %>%
+    left_join(unigram_model, by = c("w2" = "w1"))
+  #return(unigrams)
+
+  # Default to unigram unknown prob.
+  unknowns <- unigrams %>%
+    filter(is.na(prob)) %>%
+    mutate(w1 = "_s_unk") %>%
+    left_join(unigram_model, by = c("w1" = "w1"))
+  #return(unknowns)
+    
+  all_probs <- rbind(
+    bigrams %>%
+      filter(!is.na(prob)) %>%
+      select(prob),
+    unigrams %>%
+      filter(!is.na(prob)) %>%
+      select(prob),
+    unknowns %>%
+      select(prob.y) %>%
+      rename(prob = prob.y)
+  )
+  #return(all_probs)
+ 
+  all_probs %>% 
     mutate(log_prob = log2(prob)) %>%
-    summarize(sum_log_probs = sum(log_prob)) %>%
-    mutate(prod_probs = 2^sum_log_probs,
-           inv_prod_probs = 1 / prod_probs,
-           nth_root = inv_prod_probs^(1/N))
-  
-  matches
+    summarize(n = n(),
+              sum_log_probs = sum(log_prob)) %>%
+    mutate(perp = 2^(-(1/n) * sum_log_probs))
 }
+data.frame(text = c("I want to go fishing",
+                    "don't stay too long",
+                    "I can't believe you")) %>%
+  compute_perplexity(ym_1b_news_unigram, ym_1b_news, .)
 data.frame(text = c("I want to go fishing")) %>%
-  compute_perplexity(ym_1b_news, .)
+  compute_perplexity(ym_1b_news_unigram, ym_1b_news, .)
 data.frame(text = c("don't go swimming")) %>%
-  compute_perplexity(ym_1b_news, .)
+  compute_perplexity(ym_1b_news_unigram, ym_1b_news, .)
+data.frame(text = c("to on for fast not")) %>%
+  compute_perplexity(ym_1b_news_unigram, ym_1b_news, .)
+
+#unigram_tbl[[1, "validate"]] %>%
+unigram_tbl[[1, "train"]] %>%
+  compute_perplexity(ym_1b_news_unigram, ym_1b_news, .)
+```
+
+```{r}
+ym_1b_news_unigram %>%
+  filter(w1 == "_s_unk")
 ```
 
 ## Trigram Model
