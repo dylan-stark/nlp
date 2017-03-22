@@ -32,6 +32,16 @@ Discount: $\delta$
 delta <- 0.80
 ```
 
+Vocab. with "_s_unk".
+
+```{r}
+vocab <- ex_en %>%
+  unnest_tokens(word, text) %>%
+  distinct(word) %>%
+  rbind(data.frame(word = c("_s_unk")))
+vocab
+```
+
 ## Unigram
 
 ```{r}
@@ -43,42 +53,94 @@ uni_en <- ex_en %>%
 uni_en
 ```
 
+Continuation counts
+
+```{r}
+cont_counts <- vocab %>%
+  left_join(uni_en, by = c("word")) %>%
+  distinct(prefix, word) %>%
+  mutate(cont_count = ifelse(is.na(prefix), 0, 1)) %>%
+  group_by(word) %>%
+  summarize(num_distinct_context = sum(cont_count))
+cont_counts %>%
+  arrange(desc(num_distinct_context))
+
+#cont_counts %>%
+#  filter(num_distinct_context > delta) %>%
+#  left_join(uni_num_distinct_pairs, by = c("word")) %>%
+#  mutate(x = delta * num_distinct_context / num_distinct_pairs) %>%
+#  summarize(y = sum(x))
+```
+
+
+
 Number of distinct contexts this word occurs in: $|\{w\prime : 0 < c(w\prime, w_i)\}|$
 
 ```{r}
-uni_distinct_context <- uni_en %>%
-  distinct(prefix, word) %>%
-  group_by(word) %>%
-  summarize(num_distinct_context = n())
-uni_distinct_context %>%
-  arrange(desc(num_distinct_context))
+#uni_distinct_context <- uni_en %>%
+#  distinct(prefix, word) %>%
+#  group_by(word) %>%
+#  summarize(num_distinct_context = n())
+#uni_distinct_context %>%
+#  arrange(desc(num_distinct_context))
 ```
 
 Number of distinct pairs of words: $|\{(w\prime, w\prime\prime) : 0 < c(w\prime, w\prime\prime)\}|$
 
 ```{r}
-uni_num_distinct_pairs <- uni_en %>%
+uni_num_distinct_pairs <- vocab %>%
+  left_join(uni_en, by = c("word")) %>%
   distinct(prefix, word) %>%
-  mutate(num_distinct_pairs = n()) %>%
+  mutate(count = ifelse(is.na(prefix), 0, 1)) %>%
+  mutate(num_distinct_pairs = sum(count)) %>%
+  distinct(word, num_distinct_pairs) %>%
   select(word, num_distinct_pairs)
 uni_num_distinct_pairs
+```
+
+Discount we need to spread: $\lambda(\epsilon)$
+
+```{r}
+lambda_epsilon <- vocab %>%
+  left_join(cont_counts, by = c("word")) %>%
+  left_join(uni_num_distinct_pairs, by = c("word")) %>%
+  mutate(discount = ifelse(num_distinct_context > delta, delta, 0),
+         p_kn_uni = discount / num_distinct_pairs) %>%
+  distinct(word, p_kn_uni)  %>%
+  mutate(lambda_epsilon = sum(p_kn_uni)) %>%
+  select(word, lambda_epsilon)
+lambda_epsilon
 ```
 
 Unigram probability: $$p_{KN}(w_i) = \frac{|\{w\prime : 0 < c(w\prime, w_i)\}|}{|\{(w\prime, w\prime\prime) : 0 < c(w\prime, w\prime\prime)\}|}$$
 
 ```{r}
-p_kn_uni <- uni_en %>%
-  left_join(uni_distinct_context, by = c("word")) %>%
+#p_kn_uni_works <- uni_en %>%
+#  left_join(uni_distinct_context, by = c("word")) %>%
+#  left_join(uni_num_distinct_pairs, by = c("word")) %>%
+#  mutate(p_kn_uni = num_distinct_context / num_distinct_pairs) %>%
+#  distinct(word, p_kn_uni) %>%
+#  select(word, p_kn_uni)
+
+# New
+#lambda_epsilon <- 0.4149445 #1/2 - 1/8 + 1/16 - 1/32
+V <- nrow(vocab)
+
+p_kn_uni <- vocab %>%
+  left_join(cont_counts, by = c("word")) %>%
   left_join(uni_num_distinct_pairs, by = c("word")) %>%
-  mutate(p_kn_uni = num_distinct_context / num_distinct_pairs) %>%
-  distinct(word, p_kn_uni) %>%
-  select(word, p_kn_uni)
+  left_join(lambda_epsilon, by = c("word")) %>%
+  mutate(discount = pmax(num_distinct_context - delta, 0),
+         p_kn_uni = discount / num_distinct_pairs + (lambda_epsilon / V)) %>%
+  distinct(word, p_kn_uni)
 p_kn_uni
 ```
 
 Tests for true probability distribution:
 
 ```{r}
+#p_kn_uni_works %>%
+#  summarize(total_p = sum(p_kn_uni))
 p_kn_uni %>%
   summarize(total_p = sum(p_kn_uni))
 ```
