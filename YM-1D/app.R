@@ -9,13 +9,13 @@ library(wordcloud)
 library(stringr)
 library(pryr)
 
-library(courseraswiftkey)
+#library(courseraswiftkey)
 
 ################################################################################
 
 recommend_bigram <- function(model, user_str, n = 1) {
-  user_bi <- word(user_str, -1)
-  user_prefix <- word(user_str, -2, -1)
+  user_bi <- str_to_lower(word(user_str, -1))
+  user_prefix <- str_to_lower(word(user_str, -2, -1))
 
   if (is.na(user_bi) | user_bi == "") {
     user_bi <- "_s_unk"
@@ -65,12 +65,12 @@ last_output <- ""
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
-  titlePanel("YM-1"),
+  titlePanel("Stark Response v0.1"),
   verticalLayout(
     #tableOutput("rec_table"),
     plotOutput("recs"),
-    textInput("user_input", "Just keep typing!"),
-    textOutput("usage_stats")
+    textInput("user_input", "Just keep typing!")
+    #textOutput("usage_stats")
   )
 )
 
