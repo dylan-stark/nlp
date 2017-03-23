@@ -27,44 +27,34 @@ Find inspiration while staring at the clouds
 
 To paraphrase Dory, "**Just keep typing. Just keep typing. Just keep typing**"!
 
-![](stark_response_good.jpg)
-![](stark_response_thank.jpg)
-![](stark_response_thank_you.jpg)
+<div align="center">
+<img src="stark_response_good.jpg" width=312 height=383>
+<img src="stark_response_thank.jpg" width=312 height=383>
+<img src="stark_response_thank_you.jpg" width=312 height=383>
+</div>
 
 Stop worrying and learn to love the AI
 ========================================================
 
-<br/>
+> The **Stark Response** app is powered by machine learning.
 
-> The **Stark Response** app is powered by advanced machine learning.
-
-<br/>
-
-In three steps:
-
-1. Ingested huge amounts of Twitter, blog, and news writing, so you did't have to
+1. Ingested huge amounts of Twitter, blog, and news, so you did't have to
 1. Constructed a multiple $n$-gram language model with support for
   * out-of-vocab words,
   * [Kneser-Ney smoothing](https://en.wikipedia.org/wiki/Kneser–Ney_smoothing) -- $p_{KN}(w_i | w_{i-3+1}^{i-1})$, with
   * backoff from trigrams to unigrams
 1. Delivered a quick, efficient, and effective prediciton with [Markov modeling](https://en.wikipedia.org/wiki/Markov_model)
 
-**All of which adds up to your never being left with nothing to say!**
+**All of which adds up to never being left with nothing to say!**
 
 But, don't just take our words for it
 ========================================================
 
 Go ahead and kick the tires:
 
-<br/>
-
 > The **Stark Response** app is online!
 
-<br/>
-
-Go here to try it out: [`https://dstark.shinyapps.io/stark_response_v01/`](https://dstark.shinyapps.io/stark_response_v01/)
-
-<br/>
+Try it out: [`https://dstark.shinyapps.io/stark_response_v01/`](https://dstark.shinyapps.io/stark_response_v01/)
 
 ## Special Thanks
 
