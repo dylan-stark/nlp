@@ -19,9 +19,17 @@ library(courseraswiftkey)
 
 ```{r}
 data("en_us_news")
+data("en_us_twitter")
+data("en_us_blogs")
 
-ex_en <- en_us_news %>%
-  sample_frac(0.20)
+#ex_en <- en_us_news %>%
+#  sample_frac(0.20)
+
+ex_en <- rbind(
+  sample_frac(en_us_news, 0.05),
+  sample_frac(en_us_blogs, 0.05),
+  sample_frac(en_us_twitter, 0.10)
+)
 ```
 
 Implementation of [Kneser-Ney smoothing](https://en.wikipedia.org/wiki/Kneser%E2%80%93Ney_smoothing).

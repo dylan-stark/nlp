@@ -28,7 +28,8 @@ recommend_bigram <- function(model, user_str, n = 1) {
 
   model %>%
     filter((prefix == user_prefix | prefix == unk_prefix | prefix == "_s_unk _s_unk") & (word != "_s_unk")) %>%
-    arrange(desc(prefix), desc(p_kn_tri)) %>%
+    #sample_n(n, weight = p_kn_tri) %>%
+    #arrange(desc(prefix), desc(p_kn_tri)) %>%
     select(word, p_kn_tri) %>%
     rename(prob = p_kn_tri) %>%
     #arrange(desc(p_kn_tri), desc(p_kn_bi), desc(p_kn_uni)) %>%
