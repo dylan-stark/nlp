@@ -14,29 +14,43 @@ library(courseraswiftkey)
 ################################################################################
 
 recommend_bigram <- function(model, user_str, n = 1) {
-  user_words <- user_str %>%
-    str_extract_all("\\w+") %>%
-    unlist()
+  user_bi <- word(user_str, -2)
+  user_prefix <- word(user_str, -2, -1)
 
-  word <- ifelse(length(user_words) == 0, "",
-                 user_words[[length(user_words)]])
-
-  exact_match <- model %>%
-    filter(w1 == word & w2 != "_s_unk") %>%
-    arrange(desc(prob))
-  if (nrow(exact_match) > 0) {
-    return(head(exact_match, n))
+  if (is.na(user_bi) | user_bi == "") {
+    user_bi <- "_s_unk"
+  }
+  if (is.na(user_prefix)) {
+    user_prefix <- paste("_s_unk", user_bi)
   }
 
-  unk_match <- model %>%
-    filter(w1 == '_s_unk' & w2 != "_s_unk") %>%
-    arrange(desc(prob))
-  return(head(unk_match, n))
+  unk_prefix <- paste("_s_unk", user_bi)
+
+  model %>%
+    filter((prefix == user_prefix | prefix == unk_prefix | prefix == "_s_unk _s_unk") & (word != "_s_unk")) %>%
+    select(word, p_kn_tri) %>%
+    rename(prob = p_kn_tri) %>%
+    arrange(desc(prob)) %>%
+    #arrange(desc(p_kn_tri), desc(p_kn_bi), desc(p_kn_uni)) %>%
+    head(n)
+
+  #exact_match <- model %>%
+  #  filter(w1 == word & w2 != "_s_unk") %>%
+  #  arrange(desc(prob))
+  #if (nrow(exact_match) > 0) {
+  #  return(head(exact_match, n))
+  #}
+#
+  #unk_match <- model %>%
+  #  filter(w1 == '_s_unk' & w2 != "_s_unk") %>%
+  #  arrange(desc(prob))
+  #return(head(unk_match, n))
 }
 
 ################################################################################
 # TODO: figure out if there's a better pla
-ym_1 <- read_rds("../vignettes/ym_1b_news.rds")
+#ym_1 <- read_rds("../vignettes/ym_1b_news.rds")
+ym_1 <- read_rds("../vignettes/p_kn_tri.rds")
 mem_usage_msg <- paste0("Memory est.: ", prettyNum(object_size(ym_1), big.mark = ","), " B")
 
 recommend <- recommend_bigram
@@ -54,7 +68,7 @@ ui <- fluidPage(
   verticalLayout(
     #tableOutput("rec_table"),
     plotOutput("recs"),
-    textInput("user_input", "User input:"),
+    textInput("user_input", "Just keep typing!"),
     textOutput("usage_stats")
   )
 )
@@ -107,13 +121,13 @@ server <- function(input, output) {
 
   output$recs <- renderPlot({
     start <- proc.time()
-    recs <- get_recs(ym_1, rv$curr_str, n = 20)
+    recs <- get_recs(ym_1, rv$curr_str, n = 100)
     total <- proc.time() - start
     user_time <- total[[1]] + total[[4]]
     rv$running_time_msg <- paste0("Time est.: ", format(user_time, digits = 3), " sec")
 
     last_output <- recs %>%
-      with(wordcloud(w2, rank, scale = c(4,1), random.order = FALSE, rot.per = 0.10, colors=brewer.pal(8, "Dark2")))
+      with(wordcloud(word, rank, scale = c(4,1), random.order = FALSE, rot.per = 0.10, colors=brewer.pal(8, "Dark2")))
 
     last_output
   })

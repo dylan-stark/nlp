@@ -21,7 +21,7 @@ library(courseraswiftkey)
 data("en_us_news")
 
 ex_en <- en_us_news %>%
-  head(100)
+  sample_frac(0.20)
 ```
 
 Implementation of [Kneser-Ney smoothing](https://en.wikipedia.org/wiki/Kneser%E2%80%93Ney_smoothing).
@@ -48,9 +48,10 @@ vocab %>%
 ```{r}
 uni_en <- ex_en %>%
   unnest_tokens(pair, text, token = "ngrams", n = 2) %>%
-  mutate(prefix = word(pair, 1),
-         word = word(pair, -1)) %>%
-  select(-line, -pair)
+  separate(pair, into = c("prefix", "word"), sep = " ") %>%
+  #mutate(prefix = word(pair, 1),
+  #       word = word(pair, -1)) %>%
+  select(-line)
 uni_en %>%
   head()
 ```
@@ -162,9 +163,10 @@ p_kn_uni %>%
 ```{r}
 bi_en <- ex_en %>%
   unnest_tokens(bi, text, token = "ngrams", n = 2) %>%
-  mutate(prefix = word(bi, 1),
-         word = word(bi, -1)) %>%
-  select(-line, -bi)
+  separate(bi, into = c("prefix", "word"), sep = " ") %>%
+  #mutate(prefix = word(bi, 1),
+  #       word = word(bi, -1)) %>%
+  select(-line)
 bi_en %>%
   head()
 ```
@@ -268,10 +270,12 @@ p_kn_bi %>%
 ```{r}
 tri_en <- ex_en %>%
   unnest_tokens(tri, text, token = "ngrams", n = 3) %>%
-  mutate(prefix = word(tri, 1, 2),
-         bi = word(tri, 2),
-         word = word(tri, -1)) %>%
-  select(-line, -tri)
+  separate(tri, into = c("prefix", "bi", "word"), sep = " ") %>%
+  mutate(prefix = paste(prefix, bi)) %>%
+  #mutate(prefix = word(tri, 1, 2),
+  #       bi = word(tri, 2),
+  #       word = word(tri, -1)) %>%
+  select(-line)
 tri_en %>%
   head()
 ```
@@ -399,7 +403,7 @@ p_kn_tri %>%
 ```{r}
 p_kn_tri %>%
   filter((prefix == "a head" | prefix == "_s_unk head" | prefix == "_s_unk _s_unk") & word != "_s_unk") %>%
-  arrange(desc(p_kn_tri))
+  arrange(desc(prefix), desc(p_kn_tri))
 ```
 
 ```{r}
@@ -414,75 +418,81 @@ p_kn_tri %>%
   arrange(desc(p_kn_tri))
 ```
 
+### Save
+
+```{r}
+write_rds(p_kn_tri, path = "p_kn_tri.rds")
+```
+
 ## Quadgram
 
 ```{r}
-quad_en <- ex_en %>%
-  unnest_tokens(quad, text, token = "ngrams", n = 4) %>%
-  mutate(prefix = word(quad, 1, 3),
-         bi = word(quad, 2, 3),
-         word = word(quad, -1)) %>%
-  select(-line, -quad)
-quad_en
+#quad_en <- ex_en %>%
+#  unnest_tokens(quad, text, token = "ngrams", n = 4) %>%
+#  mutate(prefix = word(quad, 1, 3),
+#         bi = word(quad, 2, 3),
+#         word = word(quad, -1)) %>%
+#  select(-line, -quad)
+#quad_en
 ```
 
 Discounted count of times word follows prefix: $max(c(w_{i-n+1}^{i-1}, w_i) - \delta, 0)$
 
 ```{r}
-quad_discounted_counts <- quad_en %>%
-  group_by(prefix, word) %>%
-  summarize(c_prefix_word = n()) %>%
-  mutate(max_prefix_word = pmax(c_prefix_word - delta, 0)) %>%
-  select(-c_prefix_word)
-quad_discounted_counts %>%
-  arrange(prefix, word)
+#quad_discounted_counts <- quad_en %>%
+#  group_by(prefix, word) %>%
+#  summarize(c_prefix_word = n()) %>%
+#  mutate(max_prefix_word = pmax(c_prefix_word - delta, 0)) %>%
+#  select(-c_prefix_word)
+#quad_discounted_counts %>%
+#  arrange(prefix, word)
 ```
 
 Sum of counts of times any word follows prefix: $\sum_{w\prime}c(w_{i-1},w\prime)$
 
 ```{r}
-quad_all_c_prefix_any <- quad_en %>%
-  group_by(prefix) %>%
-  summarize(c_prefix_any = n()) %>%
-  arrange(desc(c_prefix_any), prefix)
-quad_all_c_prefix_any
+#quad_all_c_prefix_any <- quad_en %>%
+#  group_by(prefix) %>%
+#  summarize(c_prefix_any = n()) %>%
+#  arrange(desc(c_prefix_any), prefix)
+#quad_all_c_prefix_any
 ```
 
 Number of distinct words occurring after some prefix: $|\{w\prime : 0 < c(w_{i-n+1}^{i-1}, w\prime)\}|$
 
 ```{r}
-quad_distinct_followers <- quad_en %>%
-  distinct(prefix, word) %>%
-  group_by(prefix) %>%
-  summarize(num_distinct_followers = n())
-quad_distinct_followers %>%
-  arrange(desc(num_distinct_followers), prefix)
+#quad_distinct_followers <- quad_en %>%
+#  distinct(prefix, word) %>%
+#  group_by(prefix) %>%
+#  summarize(num_distinct_followers = n())
+#quad_distinct_followers %>%
+#  arrange(desc(num_distinct_followers), prefix)
 ```
 
 Number of times quad appears (per word): $\sum_{w_i}c(w_{i-n+1}^{i-1})$
 
 ```{r}
-quad_occurrences <- quad_en %>%
-  group_by(prefix, word) %>%
-  summarize(sum_c_quads = n())
-quad_occurrences %>%
-  arrange(desc(sum_c_quads))
+#quad_occurrences <- quad_en %>%
+#  group_by(prefix, word) %>%
+#  summarize(sum_c_quads = n())
+#quad_occurrences %>%
+#  arrange(desc(sum_c_quads))
 ```
 
 Kneser-Ney smoothed probability: $$p_{KN}(w_i | w_{i-n+1}^{i-1}) = \frac{max(c(w_{i-n+1}^{i-1}, w_i) - \delta, 0)}{\sum_{w\prime}c(w_{i-1},w\prime)} + \delta\frac{|\{w\prime : 0 < c(w_{i-n+1}^{i-1}, w\prime)\}|}{\sum_{w_i}c(w_{i-n+1}^{i})}$$
 
 ```{r}
-p_kn_quad <- quad_en %>%
-  left_join(quad_discounted_counts, by = c("prefix", "word")) %>%
-  left_join(quad_all_c_prefix_any, by = c("prefix")) %>%
-  left_join(quad_distinct_followers, by = c("prefix")) %>%
-  left_join(quad_occurrences, by = c("prefix", "word")) %>%
-  left_join(p_kn_tri, by = c("bi" = "prefix", "word")) %>%
-  mutate(first_term = max_prefix_word / c_prefix_any,
-         second_term = delta * (num_distinct_followers / sum_c_quads),
-         p_kn_quad = first_term + second_term * p_kn_tri) %>%
-  select(prefix, bi, word, p_kn_tri, p_kn_quad)
-p_kn_quad
+#p_kn_quad <- quad_en %>%
+#  left_join(quad_discounted_counts, by = c("prefix", "word")) %>%
+#  left_join(quad_all_c_prefix_any, by = c("prefix")) %>%
+#  left_join(quad_distinct_followers, by = c("prefix")) %>%
+#  left_join(quad_occurrences, by = c("prefix", "word")) %>%
+#  left_join(p_kn_tri, by = c("bi" = "prefix", "word")) %>%
+#  mutate(first_term = max_prefix_word / c_prefix_any,
+#         second_term = delta * (num_distinct_followers / sum_c_quads),
+#         p_kn_quad = first_term + second_term * p_kn_tri) %>%
+#  select(prefix, bi, word, p_kn_tri, p_kn_quad)
+#p_kn_quad
 ```
 
 
