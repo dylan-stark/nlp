@@ -39,7 +39,8 @@ vocab <- ex_en %>%
   unnest_tokens(word, text) %>%
   distinct(word) %>%
   rbind(data.frame(word = c("_s_unk")))
-vocab
+vocab %>%
+  head()
 ```
 
 ## Unigram
@@ -50,10 +51,11 @@ uni_en <- ex_en %>%
   mutate(prefix = word(pair, 1),
          word = word(pair, -1)) %>%
   select(-line, -pair)
-uni_en
+uni_en %>%
+  head()
 ```
 
-Continuation counts
+Continuation counts is the number of single-word contexts for $w_i \in V$: $cc_{KN}(w_i) = |\{w_{i-1} : C(w_{i-1}w_i) > 0\}|$
 
 ```{r}
 cont_counts <- vocab %>%
@@ -63,7 +65,8 @@ cont_counts <- vocab %>%
   group_by(word) %>%
   summarize(num_distinct_context = sum(cont_count))
 cont_counts %>%
-  arrange(desc(num_distinct_context))
+  arrange(desc(num_distinct_context)) %>%
+  head()
 
 #cont_counts %>%
 #  filter(num_distinct_context > delta) %>%
@@ -95,10 +98,11 @@ uni_num_distinct_pairs <- vocab %>%
   mutate(num_distinct_pairs = sum(count)) %>%
   distinct(word, num_distinct_pairs) %>%
   select(word, num_distinct_pairs)
-uni_num_distinct_pairs
+uni_num_distinct_pairs %>%
+  head()
 ```
 
-Discount we need to spread: $\lambda(\epsilon)$
+Discount we need to spread: $$\lambda(\epsilon) = \frac{\delta\cdot|\{w_{i-1} : C(w_{i-1}w_i) > \delta\}|}{|\{(w\prime, w\prime\prime) : 0 < c(w\prime, w\prime\prime)\}|}$$
 
 ```{r}
 lambda_epsilon <- vocab %>%
@@ -109,12 +113,14 @@ lambda_epsilon <- vocab %>%
   distinct(word, p_kn_uni)  %>%
   mutate(lambda_epsilon = sum(p_kn_uni)) %>%
   select(word, lambda_epsilon)
-lambda_epsilon
+lambda_epsilon %>%
+  head()
 ```
 
-Unigram probability: $$p_{KN}(w_i) = \frac{|\{w\prime : 0 < c(w\prime, w_i)\}|}{|\{(w\prime, w\prime\prime) : 0 < c(w\prime, w\prime\prime)\}|}$$
+Unigram probability: $$p_{KN}(w_i) = \frac{\max(cc_{KN}(w) - \delta, 0)}{|\{(w\prime, w\prime\prime) : 0 < c(w\prime, w\prime\prime)\}|} + \lambda(\epsilon)\frac{1}{|V|}$$
 
 ```{r}
+#$$p_{KN}(w_i) = \frac{|\{w\prime : 0 < c(w\prime, w_i)\}|}{|\{(w\prime, w\prime\prime) : 0 < c(w\prime, w\prime\prime)\}|}$$
 #p_kn_uni_works <- uni_en %>%
 #  left_join(uni_distinct_context, by = c("word")) %>%
 #  left_join(uni_num_distinct_pairs, by = c("word")) %>%
@@ -133,7 +139,8 @@ p_kn_uni <- vocab %>%
   mutate(discount = pmax(num_distinct_context - delta, 0),
          p_kn_uni = discount / num_distinct_pairs + (lambda_epsilon / V)) %>%
   distinct(word, p_kn_uni)
-p_kn_uni
+p_kn_uni %>%
+  head()
 ```
 
 Tests for true probability distribution:
@@ -158,25 +165,46 @@ bi_en <- ex_en %>%
   mutate(prefix = word(bi, 1),
          word = word(bi, -1)) %>%
   select(-line, -bi)
-bi_en
+bi_en %>%
+  head()
 ```
+
+```{r}
+bi_en_unk <- bi_en %>%
+  distinct(prefix, word) %>%
+  mutate(prefix = "_s_unk") %>%
+  rbind(data.frame(prefix = "_s_unk", word = "_s_unk"))
+bi_en_unk %>%
+  head()
+
+bi_en <- bi_en %>%
+  rbind(bi_en_unk)
+bi_en %>%
+  head()
+```
+
+Discount: $\max(c_{KN}(w_{i-1}w_i) - \delta, 0)$
 
 ```{r}
 bi_discounted_counts <- bi_en %>%
   group_by(prefix, word) %>%
-  summarize(c_prefix_word = n()) %>%
-  mutate(max_prefix_word = pmax(c_prefix_word - delta, 0)) %>%
-  select(-c_prefix_word)
+  summarize(bi_count = n()) %>%
+  mutate(max_prefix_word = pmax(bi_count - delta, 0)) %>%
+  select(prefix, word, max_prefix_word)
 bi_discounted_counts %>%
-  arrange(prefix, word)
+  arrange(desc(max_prefix_word)) %>%
+  head()
 ```
+
+Count of prefixes: $c_{KN}(w_{i-n+1}^{i-1})$, for $w_{i-n+1}^w_{i-1} \in V$.
 
 ```{r}
 bi_all_c_prefix_any <- bi_en %>%
   group_by(prefix) %>%
   summarize(c_prefix_any = n())
 bi_all_c_prefix_any %>%
-  arrange(desc(c_prefix_any), prefix)
+  arrange(desc(c_prefix_any), prefix) %>%
+  head()
 ```
 
 ```{r}
@@ -185,10 +213,19 @@ bi_distinct_followers <- bi_en %>%
   group_by(prefix) %>%
   summarize(num_distinct_followers = n())
 bi_distinct_followers %>%
-  arrange(desc(num_distinct_followers), prefix)
+  arrange(desc(num_distinct_followers), prefix) %>%
+  head()
 ```
 
 ```{r}
+#p_kn_uni <- vocab %>%
+#  left_join(cont_counts, by = c("word")) %>%
+#  left_join(uni_num_distinct_pairs, by = c("word")) %>%
+#  left_join(lambda_epsilon, by = c("word")) %>%
+#  mutate(discount = pmax(num_distinct_context - delta, 0),
+#         p_kn_uni = discount / num_distinct_pairs + (lambda_epsilon / V)) %>%
+#  distinct(word, p_kn_uni)
+
 p_kn_bi <- bi_en %>%
   left_join(bi_discounted_counts, by = c("prefix", "word")) %>%
   left_join(bi_all_c_prefix_any, by = c("prefix")) %>%
@@ -200,53 +237,30 @@ p_kn_bi <- bi_en %>%
          normalizing_constant = norm_discount * num_discounted,
          p_kn_bi = first_term + normalizing_constant * p_kn_uni) %>%
   distinct(prefix, word, p_kn_bi, first_term, normalizing_constant, p_kn_uni, norm_discount, num_discounted)
-p_kn_bi
+p_kn_bi %>%
+  head()
 ```
 
-```{r}
-ex_en %>%
-  head(1)
-p_kn_bi %>%
-  unite(phrase, prefix, word, sep = " ")
-```
-
-```{r}
-p_kn_bi %>%
-  filter(prefix == "historically") %>%
-  select(prefix, word, p_kn_bi) %>%
-  arrange(desc(p_kn_bi))
-```
-
-```{r}
-p_kn_bi %>%
-  filter(prefix == "they've") %>%
-  select(prefix, word, p_kn_bi) %>%
-  arrange(desc(p_kn_bi))
-```
-
-```{r}
-p_kn_bi %>%
-  filter(prefix == "been") %>%
-  select(prefix, word, p_kn_bi) %>%
-  arrange(desc(p_kn_bi))
-```
 
 Tests for true probability distribution:
 
 ```{r}
 p_kn_bi %>%
   group_by(word) %>%
-  summarize(p_word = prod(p_kn_bi)) %>%
-  summarize(total_p = sum(p_word))
-```
-
-```{r}
-summary(p_kn_bi)
+  summarize(p = prod(p_kn_bi)) %>%
+  head()
 ```
 
 ```{r}
 p_kn_bi %>%
-  filter(p_kn_bi > 1)
+  filter(p_kn_bi > 1) %>%
+  head()
+```
+
+```{r}
+p_kn_bi %>%
+  filter(prefix == "_s_unk") %>%
+  arrange(desc(p_kn_bi))
 ```
 
 ## Trigram
@@ -258,7 +272,30 @@ tri_en <- ex_en %>%
          bi = word(tri, 2),
          word = word(tri, -1)) %>%
   select(-line, -tri)
-tri_en
+tri_en %>%
+  head()
+```
+
+```{r}
+tri_en_unk <- tri_en %>%
+  distinct(bi, word) %>%
+  mutate(prefix = paste("_s_unk", bi)) %>%
+  rbind(data.frame(prefix = "_s_unk _s_unk", bi = "_s_unk", word = "_s_unk"))
+tri_en_unk %>%
+  head()
+
+tri_en_unk_unk <- tri_en %>%
+  distinct(word) %>%
+  mutate(prefix = "_s_unk _s_unk", bi = "_s_unk") %>%
+  rbind(data.frame(prefix = "_s_unk _s_unk", bi = "_s_unk", word = "_s_unk"))
+tri_en_unk %>%
+  head()
+
+tri_en <- tri_en %>%
+  rbind(tri_en_unk,
+        tri_en_unk_unk)
+tri_en %>%
+  head()
 ```
 
 ```{r}
@@ -266,17 +303,19 @@ tri_discounted_counts <- tri_en %>%
   group_by(prefix, word) %>%
   summarize(c_prefix_word = n()) %>%
   mutate(max_prefix_word = pmax(c_prefix_word - delta, 0)) %>%
-  select(-c_prefix_word)
+  select(prefix, word, max_prefix_word)
 tri_discounted_counts %>%
-  arrange(prefix, word)
+  arrange(prefix, word) %>%
+  head()
 ```
 
 ```{r}
 tri_all_c_prefix_any <- tri_en %>%
   group_by(prefix) %>%
-  summarize(c_prefix_any = n()) %>%
-  arrange(desc(c_prefix_any), prefix)
-tri_all_c_prefix_any
+  summarize(c_prefix_any = n())
+tri_all_c_prefix_any %>%
+  arrange(desc(c_prefix_any), prefix) %>%
+  head()
 ```
 
 ```{r}
@@ -285,29 +324,94 @@ tri_distinct_followers <- tri_en %>%
   group_by(prefix) %>%
   summarize(num_distinct_followers = n())
 tri_distinct_followers %>%
-  arrange(desc(num_distinct_followers), prefix)
+  arrange(desc(num_distinct_followers), prefix) %>%
+  head()
 ```
 
 ```{r}
-tri_occurrences <- tri_en %>%
-  group_by(prefix, word) %>%
-  summarize(sum_c_tris = n())
-tri_occurrences %>%
-  arrange(desc(sum_c_tris))
+#tri_occurrences <- tri_en %>%
+#  group_by(prefix, word) %>%
+#  summarize(sum_c_tris = n())
+#tri_occurrences %>%
+#  arrange(desc(sum_c_tris))
 ```
 
 ```{r}
+#p_kn_tri <- tri_en %>%
+#  left_join(tri_discounted_counts, by = c("prefix", "word")) %>%
+#  left_join(tri_all_c_prefix_any, by = c("prefix")) %>%
+#  left_join(tri_distinct_followers, by = c("prefix")) %>%
+#  left_join(tri_occurrences, by = c("prefix", "word")) %>%
+#  left_join(p_kn_bi, by = c("bi" = "prefix", "word")) %>%
+#  mutate(first_term = max_prefix_word / c_prefix_any,
+#         second_term = delta * (num_distinct_followers / sum_c_tris),
+#         p_kn_tri = first_term + second_term * p_kn_bi) %>%
+#  select(prefix, word, p_kn_bi, p_kn_tri)
+
 p_kn_tri <- tri_en %>%
   left_join(tri_discounted_counts, by = c("prefix", "word")) %>%
   left_join(tri_all_c_prefix_any, by = c("prefix")) %>%
   left_join(tri_distinct_followers, by = c("prefix")) %>%
-  left_join(tri_occurrences, by = c("prefix", "word")) %>%
   left_join(p_kn_bi, by = c("bi" = "prefix", "word")) %>%
   mutate(first_term = max_prefix_word / c_prefix_any,
-         second_term = delta * (num_distinct_followers / sum_c_tris),
-         p_kn_tri = first_term + second_term * p_kn_bi) %>%
-  select(prefix, word, p_kn_bi, p_kn_tri)
-p_kn_tri
+         norm_discount = delta / c_prefix_any,
+         num_discounted = num_distinct_followers,
+         normalizing_constant = norm_discount * num_discounted,
+         p_kn_tri = first_term + normalizing_constant * p_kn_bi) %>%
+  distinct(prefix, bi, word, p_kn_tri, first_term, normalizing_constant, p_kn_bi)
+p_kn_tri %>%
+  head()
+```
+
+```{r}
+p_kn_tri %>%
+  group_by(word) %>%
+  summarize(p = prod(p_kn_tri)) %>%
+  head()
+```
+
+```{r}
+p_kn_tri %>%
+  filter(p_kn_tri > 1) %>%
+  head()
+```
+
+```{r}
+p_kn_tri %>%
+  filter(word == "if") %>%
+  arrange(desc(p_kn_tri))
+```
+
+```{r}
+p_kn_tri %>%
+  filter(word == "of") %>%
+  arrange(desc(p_kn_tri))
+```
+
+What if user typed "I need a head of ..."?
+
+```{r}
+p_kn_tri %>%
+  filter(prefix == "a head") %>%
+  arrange(desc(p_kn_tri))
+```
+
+```{r}
+p_kn_tri %>%
+  filter((prefix == "a head" | prefix == "_s_unk head" | prefix == "_s_unk _s_unk") & word != "_s_unk") %>%
+  arrange(desc(p_kn_tri))
+```
+
+```{r}
+p_kn_tri %>%
+  filter(str_detect(prefix, "_s_unk head")) %>%
+  arrange(desc(p_kn_tri))
+```
+
+```{r}
+p_kn_tri %>%
+  filter(bi == "_s_unk") %>%
+  arrange(desc(p_kn_tri))
 ```
 
 ## Quadgram
