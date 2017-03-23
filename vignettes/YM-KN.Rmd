@@ -408,6 +408,16 @@ p_kn_tri %>%
 
 ```{r}
 p_kn_tri %>%
+  filter((prefix == "hi how" | prefix == "_s_unk hi" | prefix == "_s_unk _s_unk") & word != "_s_unk") %>%
+  arrange(desc(prefix), desc(p_kn_tri)) %>%
+  head(100) %>%
+  mutate(rank = (n() - row_number()) / n() * p_kn_tri) %>%
+  select(word, p_kn_tri, rank)
+```
+
+
+```{r}
+p_kn_tri %>%
   filter(str_detect(prefix, "_s_unk head")) %>%
   arrange(desc(p_kn_tri))
 ```

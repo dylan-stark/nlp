@@ -14,7 +14,7 @@ library(courseraswiftkey)
 ################################################################################
 
 recommend_bigram <- function(model, user_str, n = 1) {
-  user_bi <- word(user_str, -2)
+  user_bi <- word(user_str, -1)
   user_prefix <- word(user_str, -2, -1)
 
   if (is.na(user_bi) | user_bi == "") {
@@ -28,9 +28,9 @@ recommend_bigram <- function(model, user_str, n = 1) {
 
   model %>%
     filter((prefix == user_prefix | prefix == unk_prefix | prefix == "_s_unk _s_unk") & (word != "_s_unk")) %>%
+    arrange(desc(prefix), desc(p_kn_tri)) %>%
     select(word, p_kn_tri) %>%
     rename(prob = p_kn_tri) %>%
-    arrange(desc(prob)) %>%
     #arrange(desc(p_kn_tri), desc(p_kn_bi), desc(p_kn_uni)) %>%
     head(n)
 
@@ -83,16 +83,25 @@ server <- function(input, output) {
   get_recs <- function(model, input, n = 1) {
     recs <- recommend(model, input, n = n)
 
+    #recs %>%
+    #  mutate(prob_scale = scale(prob, center = FALSE),
+    #         prob_min = min(prob_scale),
+    #         prob_adj = 1 + abs(prob_min) + prob_scale,
+    #         prob_norm = (prob - min(prob)) / (max(prob) - min(prob)),
+    #         rank_num = n() - row_number(),
+    #         rank_adj = 1 + ifelse(rank_num >= n() - 3,  rank_num * 1.25, rank_num),
+    #         rank_scale = scale(rank_adj),
+    #         rank = prob_norm,
+    #         rank = ifelse(is.na(rank), 1, rank))
+
     recs %>%
-      mutate(prob_scale = scale(prob, center = FALSE),
-             prob_min = min(prob_scale),
-             prob_adj = 1 + abs(prob_min) + prob_scale,
-             prob_norm = (prob - min(prob)) / (max(prob) - min(prob)),
-             rank_num = n() - row_number(),
-             rank_adj = 1 + ifelse(rank_num >= n() - 3,  rank_num * 1.25, rank_num),
-             rank_scale = scale(rank_adj),
-             rank = prob_norm,
-             rank = ifelse(is.na(rank), 1, rank))
+      mutate(rank = prob)
+      #mutate(rank = row_number()) # OK, but too big!
+      #mutate(rank = row_number() / n()) # OK, but too big!
+      #mutate(rank = row_number() / n()^10) # OK, but too big!
+      #mutate(rank = row_number()^(-2/3)) # semi-jibberish
+      #mutate(rank = row_number() / n() * prob) # jibberish
+      #mutate(rank = n() - row_number()) # jibberish
   }
 
   output$rec_table <- renderTable({
