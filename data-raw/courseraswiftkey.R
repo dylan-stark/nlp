@@ -35,9 +35,9 @@ if(!file.exists("data-raw/final")) {
 # Sample ~10,000 records from each file
 text <- tribble(
   ~filename, ~size,
-  "data-raw/final/en_US/en_US.blogs.txt", 0.25,
-  "data-raw/final/en_US/en_US.news.txt", 0.25,
-  "data-raw/final/en_US/en_US.twitter.txt", 0.25
+  "data-raw/final/en_US/en_US.blogs.txt", 0.10,
+  "data-raw/final/en_US/en_US.news.txt", 0.10,
+  "data-raw/final/en_US/en_US.twitter.txt", 0.10
 ) %>%
   mutate(raw_text = map2(filename, size, text_sample_frac))
 

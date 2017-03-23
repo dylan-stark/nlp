@@ -9,8 +9,6 @@ library(wordcloud)
 library(stringr)
 library(pryr)
 
-#library(courseraswiftkey)
-
 ################################################################################
 
 recommend_bigram <- function(model, user_str, n = 1) {
@@ -51,7 +49,7 @@ recommend_bigram <- function(model, user_str, n = 1) {
 ################################################################################
 # TODO: figure out if there's a better pla
 #ym_1 <- read_rds("../vignettes/ym_1b_news.rds")
-ym_1 <- read_rds("../vignettes/p_kn_tri.rds")
+ym_1 <- read_rds("p_kn_tri.rds")
 mem_usage_msg <- paste0("Memory est.: ", prettyNum(object_size(ym_1), big.mark = ","), " B")
 
 recommend <- recommend_bigram

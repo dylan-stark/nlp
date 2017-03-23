@@ -4,6 +4,7 @@ author: Dylan Stark
 date: `r Sys.Date()`
 autosize: true
 
+
 Stuck? Can't think of the next ... word?
 ========================================================
 
@@ -17,23 +18,18 @@ Stay in the flow when composing your next witty response, whether it's a tweet, 
 
 Just start crafting your message in the simple text box and look to the beautiful word cloud response for inspiration.
 
-The advanced machine learning algorithm will show you a bea
+The advanced machine learning algorithm will show you a bounty of options!
 
-Find inspiration staring at the clouds
+Find inspiration while staring at the clouds
 ========================================================
-
-<br/>
 
 > The **Stark Response** app is intuitive.
 
-<br/>
+To paraphrase Dory, "**Just keep typing. Just keep typing. Just keep typing**"!
 
-
-You type ... "`I shall call him`" ... and you see
-
-(Insert picture of wordcloud!)
-
-And, to paraphrase Dory, "**Just keep typing. Just keep typing. Just keep typing**"!
+![](stark_response_good.jpg)
+![](stark_response_thank.jpg)
+![](stark_response_thank_you.jpg)
 
 Stop worrying and learn to love the AI
 ========================================================
@@ -49,9 +45,9 @@ In three steps:
 1. Ingested huge amounts of Twitter, blog, and news writing, so you did't have to
 1. Constructed a multiple $n$-gram language model with support for
   * out-of-vocab words,
-  * add-$k$ smoothing; and,
+  * [Kneser-Ney smoothing](https://en.wikipedia.org/wiki/Kneser–Ney_smoothing) -- $p_{KN}(w_i | w_{i-3+1}^{i-1})$, with
   * backoff from trigrams to unigrams
-1. Delivered a quick, efficient, and effective prediciton with Markov modeling
+1. Delivered a quick, efficient, and effective prediciton with [Markov modeling](https://en.wikipedia.org/wiki/Markov_model)
 
 **All of which adds up to your never being left with nothing to say!**
 
@@ -60,5 +56,19 @@ But, don't just take our words for it
 
 Go ahead and kick the tires:
 
-  (Insert shinyapp URL here!)
+<br/>
+
+> The **Stark Response** app is online!
+
+<br/>
+
+Go here to try it out: [`https://dstark.shinyapps.io/stark_response_v01/`](https://dstark.shinyapps.io/stark_response_v01/)
+
+<br/>
+
+## Special Thanks
+
+[Dan Jurafsky](http://web.stanford.edu/~jurafsky/)'s Speech and Language Processing book, esp. the [Language Modeling and N-Grams](https://web.stanford.edu/~jurafsky/slp3/4.pdf) were the primary source for the language models and Kneser-Ney smoothing
+
+[Julia Silge](http://juliasilge.com) and [David Robinson](http://varianceexplained.org)'s [Text Mining with R](http://tidytextmining.com) and the [tidytext package](https://github.com/juliasilge/tidytext) were the primary tools used for implementing the models.
 
